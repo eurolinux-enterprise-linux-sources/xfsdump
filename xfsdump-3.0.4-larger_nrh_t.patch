@@ -1,0 +1,117 @@
+commit 93ff73de80fa03c9793642cab975f1210145df4b
+Author: Bill Kendall <wkendall@sgi.com>
+Date:   Tue Nov 16 15:05:04 2010 +0000
+
+    xfsrestore: change nrh_t from 32 to 64 bits
+    
+    An nrh_t refers to a byte offset in a file containing all the
+    pathname components from a dump. At an average filename length of
+    20 characters, an nrh_t would overflow on a dump containing ~214
+    million directory entries. Removing this limitation allows
+    xfsrestore to handle 4 billion directory entries.
+    
+    Signed-off-by: Bill Kendall <wkendall@sgi.com>
+    Reviewed-by: Christoph Hellwig <hch@lst.de>
+    Signed-off-by: Alex Elder <aelder@sgi.com>
+
+diff --git a/restore/namreg.c b/restore/namreg.c
+index 4e418f0..eb08062 100644
+--- a/restore/namreg.c
++++ b/restore/namreg.c
+@@ -72,26 +72,20 @@ typedef struct namreg_tran namreg_tran_t;
+  */
+ #define CHKBITCNT		2
+ #define	CHKBITSHIFT		( NBBY * sizeof( nrh_t ) - CHKBITCNT )
+-#define	CHKBITLOMASK		( ( 1 << CHKBITCNT ) - 1 )
++#define	CHKBITLOMASK		( ( 1ULL << CHKBITCNT ) - 1 )
+ #define	CHKBITMASK		( CHKBITLOMASK << CHKBITSHIFT )
+ #define CHKHDLCNT		CHKBITSHIFT
+-#define CHKHDLMASK		( ( 1 << CHKHDLCNT ) - 1 )
+-#define CHKGETBIT( h )		( ( h >> CHKBITSHIFT ) & CHKBITLOMASK )
+-#define CHKGETHDL( h )		( h & CHKHDLMASK )
+-#define CHKMKHDL( c, h )	( ( ( c << CHKBITSHIFT ) & CHKBITMASK )	\
++#define CHKHDLMASK		( ( 1ULL << CHKHDLCNT ) - 1 )
++#define CHKGETBIT( h )		( ( (h) >> CHKBITSHIFT ) & CHKBITLOMASK )
++#define CHKGETHDL( h )		( (h) & CHKHDLMASK )
++#define CHKMKHDL( c, h )	( ( ( (c) << CHKBITSHIFT ) & CHKBITMASK )	\
+ 				  |					\
+-				  ( h & CHKHDLMASK ))
++				  ( (h) & CHKHDLMASK ))
+ #define HDLMAX			( ( off64_t )CHKHDLMASK )
+ 
+ #else /* NAMREGCHK */
+ 
+-#define HDLMAX			( ( ( off64_t )1			\
+-				    <<					\
+-				    ( ( off64_t )NBBY			\
+-				      *					\
+-				      ( off64_t )sizeof( nrh_t )))	\
+-				  -					\
+-				  ( off64_t )2 ) /* 2 to avoid NRH_NULL */
++#define HDLMAX			( NRH_NULL - 1 )
+ 
+ #endif /* NAMREGCHK */
+ 
+diff --git a/restore/namreg.h b/restore/namreg.h
+index af05a87..8edbdc6 100644
+--- a/restore/namreg.h
++++ b/restore/namreg.h
+@@ -26,8 +26,8 @@
+ 
+ /* nrh_t - handle to a registered name
+  */
+-typedef size32_t nrh_t;
+-#define NRH_NULL	SIZE32MAX
++typedef size64_t nrh_t;
++#define NRH_NULL	SIZE64MAX
+ 
+ 
+ /* namreg_init - creates the name registry. resync is TRUE if the
+diff --git a/restore/tree.c b/restore/tree.c
+index 94c09e3..6679884 100644
+--- a/restore/tree.c
++++ b/restore/tree.c
+@@ -166,19 +166,18 @@ typedef struct tran tran_t;
+ #define NODESZ	48
+ 
+ struct node {
+-	xfs_ino_t n_ino;		/* 8  8 ino */
+-	nrh_t n_nrh;		/* 4 12 handle to name in name registry */
+-	dah_t n_dah;		/* 4 16 handle to directory attributes */
+-	nh_t n_hashh;		/* 4 20 hash array */
+-	nh_t n_parh;		/* 4 24 parent */
+-	nh_t n_sibh;		/* 4 28 sibling list */
+-	nh_t n_sibprevh;	/* 4 32 prev sibling list - dbl link list */
+-	nh_t n_cldh;		/* 4 36 children list */
+-	nh_t n_lnkh;		/* 4 40 hard link list */
+-	gen_t n_gen;		/* 2 42 generation count mod 0x10000 */
+-	u_char_t n_flags;	/* 1 43 action and state flags */
+-	u_char_t n_nodehkbyte;	/* 1 44 given to node abstraction */
+-	int32_t pad;		/* 4 48 padding to 8 byte boundary */
++	xfs_ino_t n_ino;	/* 8  8 ino */
++	nrh_t n_nrh;		/* 8 16 handle to name in name registry */
++	dah_t n_dah;		/* 4 20 handle to directory attributes */
++	nh_t n_hashh;		/* 4 24 hash array */
++	nh_t n_parh;		/* 4 28 parent */
++	nh_t n_sibh;		/* 4 32 sibling list */
++	nh_t n_sibprevh;	/* 4 36 prev sibling list - dbl link list */
++	nh_t n_cldh;		/* 4 40 children list */
++	nh_t n_lnkh;		/* 4 44 hard link list */
++	gen_t n_gen;		/* 2 46 generation count mod 0x10000 */
++	u_char_t n_flags;	/* 1 47 action and state flags */
++	u_char_t n_nodehkbyte;	/* 1 48 given to node abstraction */
+ };
+ 
+ typedef struct node node_t;
+@@ -3393,9 +3392,9 @@ Node_free( nh_t *nhp )
+ 		namreg_del( np->n_nrh );
+ 		np->n_nrh = NRH_NULL;
+ 	}
+-	if ( np->n_dah != NRH_NULL ) {
++	if ( np->n_dah != DAH_NULL ) {
+ 		dirattr_del( np->n_dah );
+-		np->n_dah = NRH_NULL;
++		np->n_dah = DAH_NULL;
+ 	}
+ 	np->n_flags = 0;
+ 	np->n_parh = NH_NULL;

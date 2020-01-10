@@ -1,7 +1,7 @@
 Summary: Administrative utilities for the XFS filesystem
 Name: xfsdump
 Version: 3.0.4
-Release: 4%{?dist}
+Release: 4%{?dist}.1
 # Licensing based on generic "GNU GENERAL PUBLIC LICENSE"
 # in source, with no mention of version.
 License: GPL+
@@ -17,6 +17,7 @@ ExclusiveArch: x86_64
 
 Patch0:	xfsdump-3.0.4-projid32bitsupport.patch
 Patch1:	xfsdump-3.1.4-preserve-file-capabilities.patch
+Patch2:	xfsdump-3.0.4-larger_nrh_t.patch
 
 %description
 The xfsdump package contains xfsdump, xfsrestore and a number of
@@ -40,6 +41,7 @@ subtrees may be restored from full or partial backups.
 
 %patch0 -p1
 %patch1 -p1
+%patch2 -p1
 
 %build
 %configure
@@ -71,6 +73,9 @@ rm -rf $RPM_BUILD_ROOT
 %{_sharedstatedir}/xfsdump/inventory
 
 %changelog
+* Mon Oct 06 2014 Eric Sandeen <sandeen@redhat.com> 3.0.4-4.el6_6.1
+- Fix restore of many-million-file dump (#1149869)
+
 * Thu May 08 2014 Eric Sandeen <sandeen@redhat.com> 3.0.4-4
 - Add /var/lib/xfsdump/inventory to file list (was created runtime) (#1055655)
 - Preserve file capabilities on restore (#905585)
