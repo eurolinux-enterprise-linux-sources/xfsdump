@@ -1,7 +1,7 @@
 Summary: Administrative utilities for the XFS filesystem
 Name: xfsdump
 Version: 3.0.4
-Release: 3%{?dist}
+Release: 4%{?dist}
 # Licensing based on generic "GNU GENERAL PUBLIC LICENSE"
 # in source, with no mention of version.
 License: GPL+
@@ -16,6 +16,7 @@ Requires: xfsprogs >= 2.6.30, attr >= 2.0.0
 ExclusiveArch: x86_64
 
 Patch0:	xfsdump-3.0.4-projid32bitsupport.patch
+Patch1:	xfsdump-3.1.4-preserve-file-capabilities.patch
 
 %description
 The xfsdump package contains xfsdump, xfsrestore and a number of
@@ -38,6 +39,7 @@ subtrees may be restored from full or partial backups.
 %setup -q
 
 %patch0 -p1
+%patch1 -p1
 
 %build
 %configure
@@ -54,6 +56,9 @@ rm -rf $RPM_BUILD_ROOT/%{_datadir}/doc/xfsdump/
 (cd $RPM_BUILD_ROOT/%{_sbindir}; ln -s ../../sbin/xfsdump .)
 (cd $RPM_BUILD_ROOT/%{_sbindir}; ln -s ../../sbin/xfsrestore .)
 
+# Create inventory dir (otherwise created @ runtime)
+mkdir -p $RPM_BUILD_ROOT/%{_sharedstatedir}/xfsdump/inventory
+
 %clean
 rm -rf $RPM_BUILD_ROOT
 
@@ -63,8 +68,13 @@ rm -rf $RPM_BUILD_ROOT
 %{_mandir}/man8/*
 %{_sbindir}/*
 /sbin/*
+%{_sharedstatedir}/xfsdump/inventory
 
 %changelog
+* Thu May 08 2014 Eric Sandeen <sandeen@redhat.com> 3.0.4-4
+- Add /var/lib/xfsdump/inventory to file list (was created runtime) (#1055655)
+- Preserve file capabilities on restore (#905585)
+
 * Mon Oct 15 2012 Eric Sandeen <sandeen@redhat.com> 3.0.4-3
 - 32 bit project ID fixes (#860454)
 
