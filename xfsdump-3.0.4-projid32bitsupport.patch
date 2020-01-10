@@ -1,0 +1,177 @@
+[PATCH] xfsdump: save & restore 32-bit projids
+
+commit 1e309da7a4f7e2a2f456bf6b7cea4c5f1181cd36
+Author: Eric Sandeen <sandeen@redhat.com>
+Date:   Tue Sep 18 15:35:58 2012 -0500
+
+    xfsdump: save & restore 32-bit projids
+    
+    Current xfsdump/xfsrestore only recognize the lower 16 bits of the projid.
+    With this patch, the full 32 bits are dumped & restored.
+    
+    Reported-by: Boris Ranto <branto@redhat.com>
+    Cc: Arkadiusz Mi?kiewicz <arekm@maven.pl>
+    Signed-off-by: Eric Sandeen <sandeen@redhat.com>
+    Signed-off-by: Ben Myers <bpm@sgi.com>
+
+[PATCH] xfsdump: fill in bs_forkoff
+
+Upstream, the structure containing bs_forkoff is actually zeroed
+prior to these functions, but when pulling the patch back to an
+older xfsdump, we got checksum errors due to an uninitialized
+bs_forkoff not matching in dump vs. restore.
+
+So even though forkoff won't be explicitly restored from
+a dump, do explicitly set it in these routines to keep checksums
+happy.
+
+Signed-off-by: Eric Sandeen <sandeen@redhat.com>
+---
+
+[PATCH] xfsdump: Revert dump version bump for 32bit projid fix
+
+commit 1e309da7a4f7e2a2f456bf6b7cea4c5f1181cd36 fixed xfsdump to
+properly save & restore the top 16 bits of a 32-bit projid, which
+otherwise was being dropped (and restored as 0) in older xfsdump.
+
+The original thought was to bump the dump version, so that we know
+whether the dump (may) have the top 16 bits filled in.  In practice
+this would prevent older restores from restoring newer dumps, and
+losing the top 16 bits contained in these newer dumps.
+
+However, in hindsight this appears to be of limited value.  I
+propose that the dump version change is unuseful/unwanted for a
+couple reasons:
+
+* There is no actual dump *format* change; the structure size
+  is the same, and the top 16 bits were properly zeroed before; old
+  restores will read these fixed dumps without problems and without
+  restoring garbage.  IOW, they will behave exactly as buggily as
+  they did before.  And worst case, if a dump containing the top 16
+  bits is mangled by an old restore, this can be easily remedied by
+  simply re-restoring with updated userspace.
+
+* We have no reliable method to know whether 32 bit project IDs are
+  in use; the feature flag was not added to the GEOM call at the time
+  of implementation.  Therefore we cannot reliably bump to V4 only
+  for projid32bit filesystems, and we cannot restrict V4 restores
+  only to projid32bit filesystems.  So the dump version is not
+  useful for feature cross-checking purposes.
+
+I spoke with wkendall via email, and although he may not have given
+it the most scrutiny (having moved on from xfsdump-land), he also
+felt that a version dump may not be warranted.
+
+Signed-off-by: Eric Sandeen <sandeen@redhat.com>
+---
+
+Index: xfsdump-3.0.4/common/arch_xlate.c
+===================================================================
+--- xfsdump-3.0.4.orig/common/arch_xlate.c
++++ xfsdump-3.0.4/common/arch_xlate.c
+@@ -376,7 +376,9 @@ xlate_bstat(bstat_t *bs1, bstat_t *bs2, 
+ 	IXLATE(bs1, bs2, bs_extsize);
+ 	IXLATE(bs1, bs2, bs_extents);
+ 	IXLATE(bs1, bs2, bs_gen);
+-	IXLATE(bs1, bs2, bs_projid);
++	IXLATE(bs1, bs2, bs_projid_lo);
++	IXLATE(bs1, bs2, bs_forkoff);
++	IXLATE(bs1, bs2, bs_projid_hi);
+ 	IXLATE(bs1, bs2, bs_dmevmask);
+ 	IXLATE(bs1, bs2, bs_dmstate);
+ 
+Index: xfsdump-3.0.4/common/content_inode.h
+===================================================================
+--- xfsdump-3.0.4.orig/common/content_inode.h
++++ xfsdump-3.0.4/common/content_inode.h
+@@ -172,8 +172,10 @@ struct bstat {				/*		     bytes accum *
+ 	int32_t		bs_extsize;	/* extent size		 4    50 */
+ 	int32_t		bs_extents;	/* number of extents	 4    54 */
+ 	u_int32_t	bs_gen;		/* generation count	 4    58 */
+-	u_int16_t	bs_projid;	/* project id		 2    5a */
+-	char		bs_pad[ 14 ];	/* for expansion	 e    68 */
++	u_int16_t	bs_projid_lo;	/* low 16 of project id	 2    5a */
++	u_int16_t	bs_forkoff;	/* inode fork offset	 2    5c */
++	u_int16_t	bs_projid_hi;	/* hi 16 of project id	 2    5e */
++	char		bs_pad[ 10 ];	/* for expansion	 e    68 */
+ 	u_int32_t	bs_dmevmask;	/* DMI event mask        4    6c */
+ 	u_int16_t	bs_dmstate;	/* DMI state info        2    6e */
+ 	char		bs_pad1[ 18 ];	/* for expansion        12    80 */
+@@ -183,6 +185,18 @@ struct bstat {				/*		     bytes accum *
+ 
+ typedef struct bstat bstat_t;
+ 
++/*
++ * Project quota id helpers (previously projid was 16bit only
++ * and using two 16bit values to hold new 32bit projid was choosen
++ * to retain compatibility with "old" filesystems).
++ */
++static inline __uint32_t
++bstat_projid(struct bstat *bs)
++{
++        return (__uint32_t)bs->bs_projid_hi << 16 | bs->bs_projid_lo;
++}
++
++
+ /* extended inode flags that can only be set after all data
+  * has been restored to a file.
+  */
+Index: xfsdump-3.0.4/dump/content.c
+===================================================================
+--- xfsdump-3.0.4.orig/dump/content.c
++++ xfsdump-3.0.4/dump/content.c
+@@ -5079,7 +5079,9 @@ copy_xfs_bstat(bstat_t *dst, xfs_bstat_t
+ 	dst->bs_extsize = src->bs_extsize;
+ 	dst->bs_extents = src->bs_extents;
+ 	dst->bs_gen = src->bs_gen;
+-	dst->bs_projid = src->bs_projid;
++	dst->bs_projid_lo = src->bs_projid_lo;
++	dst->bs_forkoff = src->bs_forkoff;
++	dst->bs_projid_hi = src->bs_projid_hi;
+ 	dst->bs_dmevmask = src->bs_dmevmask;
+ 	dst->bs_dmstate = src->bs_dmstate;
+ }
+Index: xfsdump-3.0.4/restore/content.c
+===================================================================
+--- xfsdump-3.0.4.orig/restore/content.c
++++ xfsdump-3.0.4/restore/content.c
+@@ -7329,7 +7329,7 @@ restore_reg( drive_t *drivep,
+ 		memset((void *)&fsxattr, 0, sizeof( fsxattr ));
+ 		fsxattr.fsx_xflags = bstatp->bs_xflags & ~POST_DATA_XFLAGS;
+ 		fsxattr.fsx_extsize = (u_int32_t) bstatp->bs_extsize;
+-		fsxattr.fsx_projid = bstatp->bs_projid;
++		fsxattr.fsx_projid = bstat_projid(bstatp);
+ 
+ 		rval = ioctl( *fdp, XFS_IOC_FSSETXATTR, (void *)&fsxattr);
+ 		if ( rval < 0 ) {
+@@ -7577,7 +7577,7 @@ restore_complete_reg(stream_context_t *s
+ 		memset((void *)&fsxattr, 0, sizeof( fsxattr ));
+ 		fsxattr.fsx_xflags = bstatp->bs_xflags;
+ 		fsxattr.fsx_extsize = (u_int32_t)bstatp->bs_extsize;
+-		fsxattr.fsx_projid = bstatp->bs_projid;
++		fsxattr.fsx_projid = bstat_projid(bstatp);
+ 
+ 		rval = ioctl( fd, XFS_IOC_FSSETXATTR, (void *)&fsxattr );
+ 		if ( rval < 0 ) {
+Index: xfsdump-3.0.4/restore/dirattr.c
+===================================================================
+--- xfsdump-3.0.4.orig/restore/dirattr.c
++++ xfsdump-3.0.4/restore/dirattr.c
+@@ -436,7 +436,7 @@ dirattr_add( filehdr_t *fhdrp )
+ 	dirattr.d_ctime = ( time32_t )fhdrp->fh_stat.bs_ctime.tv_sec;
+ 	dirattr.d_xflags = fhdrp->fh_stat.bs_xflags;
+ 	dirattr.d_extsize = ( u_int32_t )fhdrp->fh_stat.bs_extsize;
+-	dirattr.d_projid = fhdrp->fh_stat.bs_projid;
++	dirattr.d_projid = bstat_projid(&(fhdrp->fh_stat));
+ 	dirattr.d_dmevmask = fhdrp->fh_stat.bs_dmevmask;
+ 	dirattr.d_dmstate = ( u_int32_t )fhdrp->fh_stat.bs_dmstate;
+ #ifdef DIRATTRCHK
+@@ -814,7 +814,7 @@ dirattr_update( dah_t dah, filehdr_t *fh
+ 	dirattr.d_ctime = ( time32_t )fhdrp->fh_stat.bs_ctime.tv_sec;
+ 	dirattr.d_xflags = fhdrp->fh_stat.bs_xflags;
+ 	dirattr.d_extsize = ( u_int32_t )fhdrp->fh_stat.bs_extsize;
+-	dirattr.d_projid = fhdrp->fh_stat.bs_projid;
++	dirattr.d_projid = bstat_projid(&(fhdrp->fh_stat));
+ 	dirattr.d_dmevmask = fhdrp->fh_stat.bs_dmevmask;
+ 	dirattr.d_dmstate = ( u_int32_t )fhdrp->fh_stat.bs_dmstate;
+ 	dirattr.d_extattroff = DIRATTR_EXTATTROFFNULL;

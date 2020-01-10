@@ -1,7 +1,7 @@
 Summary: Administrative utilities for the XFS filesystem
 Name: xfsdump
 Version: 3.0.4
-Release: 2%{?dist}
+Release: 3%{?dist}
 # Licensing based on generic "GNU GENERAL PUBLIC LICENSE"
 # in source, with no mention of version.
 License: GPL+
@@ -10,10 +10,12 @@ URL: http://oss.sgi.com/projects/xfs/
 Source0: ftp://oss.sgi.com/projects/xfs/cmd_tars/%{name}-%{version}.tar.gz
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 BuildRequires: libtool, gettext, gawk
-BuildRequires: xfsprogs-devel, libuuid-devel, libattr-devel ncurses-devel
+BuildRequires: xfsprogs-devel >= 3.1.1-9, libuuid-devel, libattr-devel ncurses-devel
 Requires: xfsprogs >= 2.6.30, attr >= 2.0.0
 
 ExclusiveArch: x86_64
+
+Patch0:	xfsdump-3.0.4-projid32bitsupport.patch
 
 %description
 The xfsdump package contains xfsdump, xfsrestore and a number of
@@ -34,6 +36,8 @@ subtrees may be restored from full or partial backups.
 
 %prep
 %setup -q
+
+%patch0 -p1
 
 %build
 %configure
@@ -61,6 +65,9 @@ rm -rf $RPM_BUILD_ROOT
 /sbin/*
 
 %changelog
+* Mon Oct 15 2012 Eric Sandeen <sandeen@redhat.com> 3.0.4-3
+- 32 bit project ID fixes (#860454)
+
 * Mon Apr 19 2010 Eric Sandeen <sandeen@redhat.com> 3.0.4-2
 - Restrict build to x86_64 for RHEL6 (#576259)
 
