@@ -1,0 +1,45 @@
+commit 1162bdbcff77ed2341f0a9294db76df80f2f36a3
+Author: Eric Sandeen <sandeen@sandeen.net>
+Date:   Tue Oct 8 22:05:54 2013 +0000
+
+    xfsdump: avoid segfault in partial_reg() in error case
+    
+    If we go down the "/* Should never get here. */" path
+    in partial_reg(), we issue a warning but then continue
+    with the function.  This calls pi_unlock() twice,
+    but worse, uses a null isptr:
+    
+            if ( ! isptr ) {
+    ... isptr is never set if we get to ...
+                    /* Should never get here. */
+                    pi_unlock();
+    ...
+            }
+    ...
+            /* Update this drive's entry */
+            bsptr = &isptr->is_bs[d_index];
+            if (bsptr->endoffset == 0) {
+    
+    >From all appearances, because we unlock on that "never get
+    here" path, it should just be returning after printing the
+    warning.  So add that, and we avoid the segfault.
+    
+    The previous fix to partial_reg() should prevent us from
+    hitting this in the first place.
+    
+    Signed-off-by: Eric Sandeen <sandeen@redhat.com>
+    Reviewed-by: Carlos Maiolino <cmaiolino@redhat.com>
+    Signed-off-by: Rich Johnston <rjohnston@sgi.com>
+
+diff --git a/restore/content.c b/restore/content.c
+index 54d933c..cc49336 100644
+--- a/restore/content.c
++++ b/restore/content.c
+@@ -9007,6 +9007,7 @@ partial_reg( ix_t d_index,
+ #ifdef DEBUGPARTIALS
+ 		dump_partials();
+ #endif
++		return;
+ 	}
+ 
+ found:
