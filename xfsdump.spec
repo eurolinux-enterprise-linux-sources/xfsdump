@@ -1,7 +1,7 @@
 Summary: Administrative utilities for the XFS filesystem
 Name: xfsdump
-Version: 3.1.3
-Release: 5%{?dist}
+Version: 3.1.4
+Release: 1%{?dist}
 # Licensing based on generic "GNU GENERAL PUBLIC LICENSE"
 # in source, with no mention of version.
 License: GPL+
@@ -12,10 +12,6 @@ BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 BuildRequires: libtool, gettext, gawk
 BuildRequires: xfsprogs-devel, libuuid-devel, libattr-devel ncurses-devel
 Requires: xfsprogs >= 2.6.30, attr >= 2.0.0
-
-Patch0: xfsdump-3.1.13-partial_reg-segfault.patch
-Patch1: xfsdump-3.1.13-partial-stream-xattrs.patch
-Patch2: xfsdump-3.1.13-restore-capabilities.patch
 
 %description
 The xfsdump package contains xfsdump, xfsrestore and a number of
@@ -36,10 +32,6 @@ subtrees may be restored from full or partial backups.
 
 %prep
 %setup -q
-
-%patch0 -p1
-%patch1 -p1
-%patch2 -p1
 
 %build
 %configure
@@ -69,10 +61,13 @@ rm -rf $RPM_BUILD_ROOT
 %{_sbindir}/*
 
 %changelog
+* Mon Feb 17 2014 Eric Sandeen <sandeen@redhat.com> 3.1.4-1
+- Fix aarch64 build (#1028131)
+- Rebase to 3.1.4 to roll up prior individual patches
+
 * Mon Feb 17 2014 Eric Sandeen <sandeen@redhat.com> 3.1.3-5
 - Preserve file capabilities during xfsrestore (#1013345)
 
-- Preserve xattrs on multi-part stream restores (#1034014)
 * Fri Jan 24 2014 Daniel Mach <dmach@redhat.com> - 3.1.3-4
 - Mass rebuild 2014-01-24
 

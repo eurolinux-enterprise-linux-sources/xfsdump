@@ -362,6 +362,15 @@ struct stream_context {
 	char       sc_path[2 * MAXPATHLEN];
 	intgen_t   sc_fd;
 	intgen_t   sc_hsmflags;
+
+	/*
+	 * we have to set the owner before we set extended attributes otherwise
+	 * capabilities will not be restored correctly as setting the owner with
+	 * fchmod will strip the capability attribute from the file. Hence we
+	 * need to do this before restoring xattrs and record it so we don't do
+	 * it again on completion of file restoration.
+	 */
+	bool_t	   sc_ownerset;
 };
 
 typedef struct stream_context stream_context_t;
@@ -3429,6 +3438,8 @@ applynondirdump( drive_t *drivep,
 	memset(&strctxp->sc_bstat, 0, sizeof(bstat_t));
 	strctxp->sc_path[0] = '\0';
 	strctxp->sc_fd = -1;
+	strctxp->sc_ownerset = BOOL_FALSE;
+
 
 	for ( ; ; ) {
 		drive_ops_t *dop = drivep->d_opsp;
@@ -3455,6 +3466,7 @@ applynondirdump( drive_t *drivep,
 			memcpy(&strctxp->sc_bstat, bstatp, sizeof(bstat_t));
 			strctxp->sc_path[0] = '\0';
 			strctxp->sc_fd = -1;
+			strctxp->sc_ownerset = BOOL_FALSE;
 
 			rv = restore_file( drivep, fhdrp, ehcs, ahcs, path1, path2 );
 
@@ -7351,6 +7363,61 @@ restore_file_cb( void *cp, bool_t linkpr, char *path1, char *path2 )
 	}
 }
 
+/*
+ * Set the file owner and strip suid/sgid if necessary. On failure, it will
+ * close the file descriptor, unlink the file and return -1. On success,
+ * it will mark the stream contexts as having set the owner and return 0.
+ */
+static int
+set_file_owner(
+	char		 *path,
+	intgen_t	 *fdp,
+	stream_context_t *strcxtp)
+{
+	bstat_t		*bstatp = &strcxtp->sc_bstat;
+	mode_t		mode = (mode_t)bstatp->bs_mode;
+	int		rval;
+
+	rval = fchown(*fdp, (uid_t)bstatp->bs_uid, (gid_t)bstatp->bs_gid );
+	if (!rval)
+		goto done;
+
+	mlog(MLOG_VERBOSE | MLOG_WARNING,
+	     _("chown (uid=%u, gid=%u) %s failed: %s\n"),
+	     bstatp->bs_uid, bstatp->bs_gid, path, strerror(errno));
+
+	if (mode & S_ISUID) {
+		mlog(MLOG_VERBOSE | MLOG_WARNING,
+		     _("stripping setuid bit on %s since chown failed\n"),
+		     path);
+		mode &= ~S_ISUID;
+	}
+
+	if ((mode & (S_ISGID|S_IXGRP)) == (S_ISGID|S_IXGRP)) {
+		mlog(MLOG_VERBOSE | MLOG_WARNING,
+		     _("stripping setgid bit on %s since chown failed\n"),
+		     path);
+		mode &= ~S_ISGID;
+	}
+
+	if (mode == (mode_t)bstatp->bs_mode)
+		goto done;
+
+	rval = fchmod(*fdp, mode);
+	if (rval) {
+		mlog(MLOG_VERBOSE | MLOG_ERROR,
+		     _("unable to strip setuid/setgid on %s, unlinking file.\n"),
+		     path);
+		unlink(path);
+		close(*fdp);
+		*fdp = -1;
+		return -1;
+	}
+done:
+	strcxtp->sc_ownerset = BOOL_TRUE;
+	return 0;
+}
+
 /* called to begin a regular file. if no path given, or if just toc,
  * don't actually write, just read. also get into that situation if
  * cannot prepare destination. fd == -1 signifies no write. *statp
@@ -7442,6 +7509,12 @@ restore_reg( drive_t *drivep,
 		}
 	}
 
+	if (strctxp->sc_ownerset == BOOL_FALSE && persp->a.ownerpr) {
+		rval = set_file_owner(path, fdp, strctxp);
+		if (rval)
+			return BOOL_TRUE;
+	}
+
 	if ( persp->a.dstdirisxfspr ) {
 
 		/* set the extended inode flags, except those which must
@@ -7516,6 +7589,11 @@ restore_extent_group( drive_t *drivep,
 		 * we are done.
 		 */
 		if ( ehdr.eh_type == EXTENTHDR_TYPE_LAST ) {
+			/* For a wholly sparse file, there is no HOLE
+			 * record; advance restoredsz to EOF.
+			 */
+			if (!restoredsz)
+				restoredsz = bstatp->bs_size;
 			break;
 		}
 
@@ -7623,45 +7701,10 @@ restore_complete_reg(stream_context_t *strcxtp)
 
 	/* set the owner and group (if enabled)
 	 */
-	if ( persp->a.ownerpr ) {
-		rval = fchown( fd,
-			       ( uid_t )bstatp->bs_uid,
-			       ( gid_t )bstatp->bs_gid );
-		if ( rval ) {
-			mode_t mode = (mode_t)bstatp->bs_mode;
-
-			mlog( MLOG_VERBOSE | MLOG_WARNING,
-			      _("chown (uid=%u, gid=%u) %s failed: %s\n"),
-			      bstatp->bs_uid,
-			      bstatp->bs_gid,
-			      path,
-			      strerror( errno ));
-
-			if ( mode & S_ISUID ) {
-				mlog( MLOG_VERBOSE | MLOG_WARNING,
-				      _("stripping setuid bit on %s "
-				      "since chown failed\n"),
-				      path );
-				mode &= ~S_ISUID;
-			}
-			if ( (mode & (S_ISGID|S_IXGRP)) == (S_ISGID|S_IXGRP) ) {
-				mlog( MLOG_VERBOSE | MLOG_WARNING,
-				      _("stripping setgid bit on %s "
-				      "since chown failed\n"),
-				      path );
-				mode &= ~S_ISGID;
-			}
-			if ( mode != (mode_t)bstatp->bs_mode ) {
-				rval = fchmod( fd, mode );
-				if ( rval ) {
-					mlog( MLOG_VERBOSE | MLOG_ERROR,
-					      _("unable to strip setuid/setgid "
-					      "on %s, unlinking file.\n"),
-					      path );
-					unlink( path );
-				}
-			}
-		}
+	if (strcxtp->sc_ownerset == BOOL_FALSE && persp->a.ownerpr) {
+		rval = set_file_owner(path, &fd, strcxtp);
+		if (rval)
+			return BOOL_TRUE;
 	}
 
 	/* set the permissions/mode
@@ -8857,22 +8900,23 @@ dump_partials(void)
 	int i;
 
 	pi_lock();
-	printf("\npartial_reg: count=%d\n", persp->a.parrestcnt);
+	printf("\npartial_reg: count=%d\n", (int)persp->a.parrestcnt);
 	if (persp->a.parrestcnt > 0) {
 		for (i=0; i < partialmax; i++ ) {
 			if (persp->a.parrest[i].is_ino > 0) {
 				int j;
 
 				isptr = &persp->a.parrest[i];
-				printf( "\tino=%lld ", isptr->is_ino);
+				printf("\tino=%llu ",
+				       (unsigned long long)isptr->is_ino);
 				for (j=0, bsptr=isptr->is_bs;
 				     j < drivecnt; 
 				     j++, bsptr++)
 				{
 					if (bsptr->endoffset > 0) {
 						printf("%d:%lld-%lld ",
-						     j, bsptr->offset, 
-						     bsptr->endoffset);
+						   j, (long long)bsptr->offset,
+						   (long long)bsptr->endoffset);
 					} 
 				}
 				printf( "\n");
@@ -8892,13 +8936,17 @@ dump_partials(void)
 void
 check_valid_partials(void)
 {
-        int num_partials[STREAM_MAX]; /* sum of partials for a given drive */
+	int *num_partials; /* array for sum of partials for a given drive */
 	partial_rest_t *isptr = NULL;
 	bytespan_t *bsptr = NULL;
 	int i;
 
 	/* zero the sums for each stream */
-        memset(num_partials, 0, sizeof(num_partials));
+	num_partials = calloc(drivecnt, sizeof(int));
+	if (!num_partials) {
+		perror("num_partials array allocation");
+		return;
+	}
 
 	pi_lock();
 	if (persp->a.parrestcnt > 0) {
@@ -8926,6 +8974,7 @@ check_valid_partials(void)
 		}
 	}
 	pi_unlock();
+	free(num_partials);
 }
 #endif
 
@@ -9007,6 +9056,7 @@ partial_reg( ix_t d_index,
 #ifdef DEBUGPARTIALS
 		dump_partials();
 #endif
+		return;
 	}
 
 found:
