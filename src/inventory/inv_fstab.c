@@ -19,12 +19,19 @@
 #include <xfs/xfs.h>
 #include <xfs/jdm.h>
 
+#include <unistd.h>
+#include <stdlib.h>
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/dir.h>
+#include <assert.h>
+#include <string.h>
+#include <uuid/uuid.h>
+
+#include "config.h"
 
 #include "types.h"
 #include "mlog.h"
@@ -41,7 +48,7 @@
 /*----------------------------------------------------------------------*/
 
 
-intgen_t
+int
 fstab_getall( invt_fstab_t **arr, invt_counter_t **cnt, int *numfs,
 	      inv_oflag_t forwhat )
 {
@@ -80,7 +87,7 @@ fstab_getall( invt_fstab_t **arr, invt_counter_t **cnt, int *numfs,
 /*----------------------------------------------------------------------*/
 
 
-intgen_t
+int
 fstab_put_entry( uuid_t *fsidp, char *mntpt, char *dev, inv_oflag_t forwhat )
 {
 	int numfs, i, fd;
@@ -88,7 +95,7 @@ fstab_put_entry( uuid_t *fsidp, char *mntpt, char *dev, inv_oflag_t forwhat )
 	invt_fstab_t *arr;
 	int rval = 1;
 
-	ASSERT( forwhat != INV_SEARCH_ONLY );
+	assert( forwhat != INV_SEARCH_ONLY );
 
 	/* fd is locked on succesful return */
 	fd = fstab_getall( &arr, &cnt, &numfs, forwhat );
@@ -166,7 +173,7 @@ fstab_put_entry( uuid_t *fsidp, char *mntpt, char *dev, inv_oflag_t forwhat )
 
 
 
-intgen_t
+int
 fstab_get_fname( void *pred, 
 		 char *fname, 
 		 inv_predicate_t bywhat,
@@ -229,7 +236,7 @@ fstab_get_fname( void *pred,
 	if ( bywhat != INV_BY_UUID ) 
 		free ( arr );
 
-	ASSERT( (int) strlen( fname ) < INV_STRLEN );
+	assert( (int) strlen( fname ) < INV_STRLEN );
 	return 1;
 }	
 	

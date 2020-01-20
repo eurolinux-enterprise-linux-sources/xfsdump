@@ -16,17 +16,20 @@
  * Inc.,  51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
-#include <xfs/xfs.h>
-#include <xfs/jdm.h>
-
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sys/types.h>
 #include <time.h>
 #include <getopt.h>
 #include <pthread.h>
+#include <assert.h>
+#include <string.h>
+#include <uuid/uuid.h>
+
+#include "config.h"
 
 #include "types.h"
 #include "qlock.h"
@@ -35,7 +38,6 @@
 #include "cldmgr.h"
 #include "getopt.h"
 #include "exit.h"
-#include "util.h"
 #include "global.h"
 #include "drive.h"
 
@@ -50,15 +52,15 @@ static FILE *mlog_fp = NULL; /* stderr */;
 static FILE *mlog_fp = NULL; /* stdout */;
 #endif /* RESTORE */
 
-intgen_t mlog_level_ss[ MLOG_SS_CNT ];
+int mlog_level_ss[ MLOG_SS_CNT ];
 
-intgen_t mlog_showlevel = BOOL_FALSE;
+int mlog_showlevel = BOOL_FALSE;
 
-intgen_t mlog_showss = BOOL_FALSE;
+int mlog_showss = BOOL_FALSE;
 
-intgen_t mlog_timestamp = BOOL_FALSE;
+int mlog_timestamp = BOOL_FALSE;
 
-static intgen_t mlog_sym_lookup( char * );
+static int mlog_sym_lookup( char * );
 
 static size_t mlog_streamcnt;
 
@@ -80,7 +82,7 @@ static char mlog_tsstr[ 10 ];
 
 struct mlog_sym {
 	char *sym;
-	intgen_t level;
+	int level;
 };
 
 typedef struct mlog_sym mlog_sym_t;
@@ -142,13 +144,13 @@ mlog_init0( void )
 }
 
 bool_t
-mlog_init1( intgen_t argc, char *argv[ ] )
+mlog_init1( int argc, char *argv[ ] )
 {
 	char **suboptstrs;
 	ix_t ssix;
 	ix_t soix;
 	size_t vsymcnt;
-	intgen_t c;
+	int c;
 
 	/* prepare an array of suboption token strings. this will be the
 	 * concatenation of the subsystem names with the verbosity symbols.
@@ -157,9 +159,9 @@ mlog_init1( intgen_t argc, char *argv[ ] )
 	vsymcnt = sizeof( mlog_sym ) / sizeof( mlog_sym[ 0 ] );
 	suboptstrs = ( char ** )calloc( MLOG_SS_CNT + vsymcnt + 1,
 					sizeof( char * ));
-	ASSERT( suboptstrs );
+	assert( suboptstrs );
 	for ( soix = 0 ; soix < MLOG_SS_CNT ; soix++ ) {
-		ASSERT( strlen( mlog_ss_names[ soix ] ) <= MLOG_SS_NAME_MAX );
+		assert( strlen( mlog_ss_names[ soix ] ) <= MLOG_SS_NAME_MAX );
 			/* unrelated, but opportunity to chk */
 		suboptstrs[ soix ] = mlog_ss_names[ soix ];
 	}
@@ -196,7 +198,7 @@ mlog_init1( intgen_t argc, char *argv[ ] )
 			}
 			options = optarg;
 			while ( *options ) {
-				intgen_t suboptix;
+				int suboptix;
 				char *valstr;
 
 				suboptix = getsubopt( &options, 
@@ -210,7 +212,7 @@ mlog_init1( intgen_t argc, char *argv[ ] )
 					usage( );
 					return BOOL_FALSE;
 				}
-				ASSERT( ( ix_t )suboptix
+				assert( ( ix_t )suboptix
 					<
 					MLOG_SS_CNT + vsymcnt );
 				if ( suboptix < MLOG_SS_CNT ) {
@@ -273,8 +275,8 @@ mlog_init1( intgen_t argc, char *argv[ ] )
 	 */
 	for ( ssix = 0 ; ssix < MLOG_SS_CNT ; ssix++ ) {
 		if ( mlog_level_ss[ ssix ] < 0 ) {
-			ASSERT( mlog_level_ss[ ssix ] == -1 );
-			ASSERT( mlog_level_ss[ MLOG_SS_GEN ] >= 0 );
+			assert( mlog_level_ss[ ssix ] == -1 );
+			assert( mlog_level_ss[ MLOG_SS_GEN ] >= 0 );
 			mlog_level_ss[ ssix ] = mlog_level_ss[ MLOG_SS_GEN ];
 		}
 	}
@@ -339,9 +341,9 @@ mlog_unlock( void )
  * too much output.
  */
 void
-mlog_override_level( intgen_t levelarg )
+mlog_override_level( int levelarg )
 {
-	intgen_t level;
+	int level;
 	ix_t ss; /* SubSystem */
 
 	level = levelarg & MLOG_LEVELMASK;
@@ -358,7 +360,7 @@ mlog_override_level( intgen_t levelarg )
 }
 
 void
-mlog( intgen_t levelarg, char *fmt, ... )
+mlog( int levelarg, char *fmt, ... )
 {
 	va_list args;
 	va_start( args, fmt );
@@ -367,15 +369,15 @@ mlog( intgen_t levelarg, char *fmt, ... )
 }
 
 void
-mlog_va( intgen_t levelarg, char *fmt, va_list args )
+mlog_va( int levelarg, char *fmt, va_list args )
 {
-	intgen_t level;
+	int level;
 	ix_t ss;
 
 	level = levelarg & MLOG_LEVELMASK;
 	ss = ( ix_t )( ( levelarg & MLOG_SS_MASK ) >> MLOG_SS_SHIFT );
 
-	ASSERT( ss < MLOG_SS_CNT );
+	assert( ss < MLOG_SS_CNT );
 	if ( level > mlog_level_ss[ ss ] ) {
 		return;
 	}
@@ -385,7 +387,7 @@ mlog_va( intgen_t levelarg, char *fmt, va_list args )
 	}
 
 	if ( ! ( levelarg & MLOG_BARE )) {
-		intgen_t streamix;
+		int streamix;
 		streamix = stream_getix( pthread_self( ) );
 
 		if ( mlog_showss ) {
@@ -402,7 +404,7 @@ mlog_va( intgen_t levelarg, char *fmt, va_list args )
 				 tmp->tm_hour,
 				 tmp->tm_min,
 				 tmp->tm_sec );
-			ASSERT( strlen( mlog_tsstr ) < sizeof( mlog_tsstr ));
+			assert( strlen( mlog_tsstr ) < sizeof( mlog_tsstr ));
 		} else {
 			mlog_tsstr[ 0 ] = 0;
 		}
@@ -415,7 +417,7 @@ mlog_va( intgen_t levelarg, char *fmt, va_list args )
 				mlog_levelstr[ 1 ] = ( char )
 						     ( level
 						       +
-						       ( intgen_t )'0' );
+						       ( int )'0' );
 			}
 		} else {
 			mlog_levelstr[ 0 ] = 0;
@@ -605,7 +607,7 @@ _mlog_exit( const char *file, int line, int exit_code, rv_t rv )
 	else {
 		stream_state_t states[] = { S_RUNNING };
 		stream_state_t state;
-		intgen_t streamix;
+		int streamix;
 		int exit_code;
 		rv_t exit_return, exit_hint;
 
@@ -676,7 +678,7 @@ mlog_get_hint( void )
 
 	ok = stream_get_exit_status(pthread_self(), states, N(states),
 				    NULL, NULL, NULL, NULL, &hint);
-	ASSERT(ok);
+	assert(ok);
 	return hint;
 }
 
@@ -722,7 +724,7 @@ mlog_exit_flush(void)
 
 		for (i = 0; i < ntids; i++) {
 			stream_state_t state;
-			intgen_t streamix;
+			int streamix;
 			int exit_code;
 			rv_t exit_return, exit_hint;
 			/* REFERENCED */
@@ -736,7 +738,7 @@ mlog_exit_flush(void)
 						    &exit_code,
 						    &exit_return,
 						    &exit_hint);
-			ASSERT(ok);
+			assert(ok);
 
 			/* hint takes priority over return */
 			rv = (exit_hint != RV_NONE) ? exit_hint : exit_return;
@@ -771,7 +773,7 @@ mlog_exit_flush(void)
 	else if (IS_INCOMPLETE(rv)) incomplete = BOOL_TRUE;
 
 	/* if we don't have an exit code here there is a problem */
-	ASSERT(VALID_EXIT_CODE(mlog_main_exit_code));
+	assert(VALID_EXIT_CODE(mlog_main_exit_code));
 	if (interrupt) status_str = "INTERRUPT";
 	else if (quit) status_str = "QUIT";
 	else if (incomplete) status_str = "INCOMPLETE";
@@ -782,7 +784,7 @@ mlog_exit_flush(void)
 	fflush(mlog_fp);
 }
 
-static intgen_t
+static int
 mlog_sym_lookup( char *sym )
 {
 	mlog_sym_t *p = mlog_sym;
@@ -797,4 +799,49 @@ mlog_sym_lookup( char *sym )
 	}
 
 	return -1;
+}
+
+void
+fold_init( fold_t fold, char *infostr, char c )
+{
+	size_t infolen;
+	size_t dashlen;
+	size_t predashlen;
+	size_t postdashlen;
+	char *p;
+	char *endp;
+	ix_t cnt;
+
+	assert( sizeof( fold_t ) == FOLD_LEN + 1 );
+
+	infolen = strlen( infostr );
+	if ( infolen > FOLD_LEN - 4 ) {
+		infolen = FOLD_LEN - 4;
+	}
+	dashlen = FOLD_LEN - infolen - 3;
+	predashlen = dashlen / 2;
+	postdashlen = dashlen - predashlen;
+
+	p = &fold[ 0 ];
+	endp = &fold[ sizeof( fold_t ) - 1 ];
+
+	assert( p < endp );
+	*p++ = ' ';
+	for ( cnt = 0 ; cnt < predashlen && p < endp ; cnt++, p++ ) {
+		*p = c;
+	}
+	assert( p < endp );
+	*p++ = ' ';
+	assert( p < endp );
+	assert( p + infolen < endp );
+	strcpy( p, infostr );
+	p += infolen;
+	assert( p < endp );
+	*p++ = ' ';
+	assert( p < endp );
+	for ( cnt = 0 ; cnt < postdashlen && p < endp ; cnt++, p++ ) {
+		*p = c;
+	}
+	assert( p <= endp );
+	*p = 0;
 }

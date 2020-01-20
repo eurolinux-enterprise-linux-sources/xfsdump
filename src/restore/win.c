@@ -16,15 +16,15 @@
  * Inc.,  51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
-#include <xfs/xfs.h>
-#include <xfs/jdm.h>
-
 #include <sys/types.h>
 #include <sys/mman.h>
 #include <time.h>
 #include <stdlib.h>
 #include <memory.h>
 #include <errno.h>
+#include <assert.h>
+
+#include "config.h"
 
 #include "types.h"
 #include "mlog.h"
@@ -75,7 +75,7 @@ static void win_segmap_resize( segix_t segix );
 /* transient state
  */
 struct tran {
-	intgen_t t_fd;
+	int t_fd;
 		/* file descriptor of backing store to be windowed
 		 */
 	off64_t t_firstoff;
@@ -146,21 +146,21 @@ win_getnum_mmaps(void)
 }
 
 void
-win_init( intgen_t fd,
+win_init( int fd,
 	  off64_t firstoff,
 	  size64_t segsz,
 	  size_t winmax )
 {
 	/* validate parameters
 	 */
-	ASSERT( ( firstoff & ( off64_t )pgmask ) == 0 );
-	ASSERT( ( segsz & pgmask ) == 0 );
+	assert( ( firstoff & ( off64_t )pgmask ) == 0 );
+	assert( ( segsz & pgmask ) == 0 );
 
 	/* allocate and initialize transient state
 	 */
-	ASSERT( tranp == 0 );
+	assert( tranp == 0 );
 	tranp = ( tran_t * )calloc( 1, sizeof( tran_t ));
-	ASSERT( tranp );
+	assert( tranp );
 
 	tranp->t_fd = fd;
 	tranp->t_firstoff = firstoff;
@@ -170,7 +170,7 @@ win_init( intgen_t fd,
 	tranp->t_segmaplen = SEGMAP_INCR;
 	tranp->t_segmap = (win_t **)
 	calloc( tranp->t_segmaplen, sizeof(win_t *) );
-	ASSERT( tranp->t_segmap );
+	assert( tranp->t_segmap );
 
 	/* initialize critical region enforcer
 	 */
@@ -203,8 +203,8 @@ win_map( segix_t segix, void **pp )
 		     "win_map(): requested segment already mapped\n");
 #endif
 		if ( winp->w_refcnt == 0 ) {
-			ASSERT( tranp->t_lruheadp );
-			ASSERT( tranp->t_lrutailp );
+			assert( tranp->t_lruheadp );
+			assert( tranp->t_lrutailp );
 			if ( tranp->t_lruheadp == winp ) {
 				if ( tranp->t_lrutailp == winp ) {
 					tranp->t_lruheadp = 0;
@@ -225,8 +225,8 @@ win_map( segix_t segix, void **pp )
 			winp->w_prevp = 0;
 			winp->w_nextp = 0;
 		} else {
-			ASSERT( ! winp->w_prevp );
-			ASSERT( ! winp->w_nextp );
+			assert( ! winp->w_prevp );
+			assert( ! winp->w_nextp );
 		}
 		winp->w_refcnt++;
 		*pp = winp->w_p;
@@ -243,16 +243,16 @@ win_map( segix_t segix, void **pp )
 		     "win_map(): create a new window\n");
 #endif
 		winp = ( win_t * )calloc( 1, sizeof( win_t ));
-		ASSERT( winp );
+		assert( winp );
 		tranp->t_wincnt++;
 	} else if ( tranp->t_lruheadp ) {
 		/* REFERENCED */
-		intgen_t rval;
+		int rval;
 #ifdef TREE_DEBUG
 		mlog(MLOG_DEBUG | MLOG_TREE | MLOG_NOLOCK,
 		     "win_map(): get head from lru freelist & unmap\n");
 #endif
-		ASSERT( tranp->t_lrutailp );
+		assert( tranp->t_lrutailp );
 		winp = tranp->t_lruheadp;
 		tranp->t_lruheadp = winp->w_nextp;
 		if ( tranp->t_lruheadp ) {
@@ -262,10 +262,10 @@ win_map( segix_t segix, void **pp )
 		}
 		tranp->t_segmap[winp->w_segix] = NULL;
 		rval = munmap( winp->w_p, tranp->t_segsz );
-		ASSERT( ! rval );
+		assert( ! rval );
 		memset( ( void * )winp, 0, sizeof( win_t ));
 	} else {
-		ASSERT( tranp->t_wincnt == tranp->t_winmax );
+		assert( tranp->t_wincnt == tranp->t_winmax );
 		*pp = NULL;
 		CRITICAL_END();
 		mlog( MLOG_NORMAL | MLOG_WARNING, _(
@@ -279,12 +279,12 @@ win_map( segix_t segix, void **pp )
 
 	/* map the window
 	 */
-	ASSERT( tranp->t_segsz >= 1 );
-	ASSERT( tranp->t_firstoff
+	assert( tranp->t_segsz >= 1 );
+	assert( tranp->t_firstoff
 		<=
 		OFF64MAX - segoff - ( off64_t )tranp->t_segsz + 1ll );
-	ASSERT( ! ( tranp->t_segsz % pgsz ));
-	ASSERT( ! ( ( tranp->t_firstoff + segoff ) % ( off64_t )pgsz ));
+	assert( ! ( tranp->t_segsz % pgsz ));
+	assert( ! ( ( tranp->t_firstoff + segoff ) % ( off64_t )pgsz ));
 #ifdef TREE_DEBUG
 	mlog(MLOG_DEBUG | MLOG_TREE | MLOG_NOLOCK,
 	     "win_map(): mmap segment at %lld, size = %llu\n",
@@ -317,7 +317,7 @@ win_map( segix_t segix, void **pp )
 		return;
 	}
 	winp->w_segix  = segix;
-	ASSERT( winp->w_refcnt == 0 );
+	assert( winp->w_refcnt == 0 );
 	winp->w_refcnt++;
 	tranp->t_segmap[winp->w_segix] = winp;
 
@@ -335,36 +335,36 @@ win_unmap( segix_t segix, void **pp )
 
 	/* verify window mapped
 	 */
-	ASSERT( segix < tranp->t_segmaplen );
+	assert( segix < tranp->t_segmaplen );
 	winp = tranp->t_segmap[segix];
-	ASSERT( winp );
+	assert( winp );
 
 	/* validate p
 	 */
-	ASSERT( pp );
-	ASSERT( *pp );
-	ASSERT( *pp >= winp->w_p );
-	ASSERT( *pp < ( void * )( ( char * )( winp->w_p ) + tranp->t_segsz ));
+	assert( pp );
+	assert( *pp );
+	assert( *pp >= winp->w_p );
+	assert( *pp < ( void * )( ( char * )( winp->w_p ) + tranp->t_segsz ));
 
 	/* decrement the reference count. if zero, place at tail of LRU list.
 	 */
-	ASSERT( winp->w_refcnt > 0 );
+	assert( winp->w_refcnt > 0 );
 	winp->w_refcnt--;
-	ASSERT( ! winp->w_prevp );
-	ASSERT( ! winp->w_nextp );
+	assert( ! winp->w_prevp );
+	assert( ! winp->w_nextp );
 	if ( winp->w_refcnt == 0 ) {
 		if ( tranp->t_lrutailp ) {
-			ASSERT( tranp->t_lruheadp );
+			assert( tranp->t_lruheadp );
 			winp->w_prevp = tranp->t_lrutailp;
 			tranp->t_lrutailp->w_nextp = winp;
 			tranp->t_lrutailp = winp;
 		} else {
-			ASSERT( ! tranp->t_lruheadp );
-			ASSERT( ! winp->w_prevp );
+			assert( ! tranp->t_lruheadp );
+			assert( ! winp->w_prevp );
 			tranp->t_lruheadp = winp;
 			tranp->t_lrutailp = winp;
 		}
-		ASSERT( ! winp->w_nextp );
+		assert( ! winp->w_nextp );
 	}
 
 	/* zero the caller's pointer
@@ -385,7 +385,7 @@ win_segmap_resize(segix_t segix)
 	tranp->t_segmaplen = segix + SEGMAP_INCR;
 	tranp->t_segmap = (win_t **)
 		realloc( tranp->t_segmap, tranp->t_segmaplen * sizeof(win_t *) );
-	ASSERT( tranp->t_segmap );
+	assert( tranp->t_segmap );
 
 	/* clear the new portion of the array */
 	new_part = tranp->t_segmap + oldlen;

@@ -48,8 +48,8 @@
 #define NEW_INVINDEX		2
 
 /* session flags ( seshdr.sh_flag ) */
-#define INVT_PARTIAL		(u_int)0x0001
-#define INVT_RESUMED            (u_int)0x0002
+#define INVT_PARTIAL		(uint)0x0001
+#define INVT_RESUMED            (uint)0x0002
 
 /* media file flags ( mfile.mf_flag ) */
 #define INVT_MFILE_GOOD         (u_char)0x01
@@ -63,8 +63,8 @@
 #define INVLOCK( fd, m )	flock( fd, m ) 
 
 /* return values */
-#define INV_OK			(intgen_t) 1
-#define INV_ERR			(intgen_t) -1
+#define INV_OK			(int) 1
+#define INV_ERR			(int) -1
 
 #define I_DONE                  (int) -1
 #define I_EMPTYINV              (int) -2
@@ -108,9 +108,9 @@ typedef struct invt_session {
 	char		 s_label[INV_STRLEN];  /* session label */
 	char		 s_mountpt[INV_STRLEN];/* path to the mount point */
 	char		 s_devpath[INV_STRLEN];/* path to the device */
-	u_int		 s_cur_nstreams;/* number of streams created under
+	uint		 s_cur_nstreams;/* number of streams created under
 					   this session so far */
-	u_int		 s_max_nstreams;/* number of media streams in 
+	uint		 s_max_nstreams;/* number of media streams in 
 					   the session */
 	char		 s_padding[16];
 } invt_session_t;			   
@@ -148,7 +148,7 @@ typedef struct invt_stream {
 	off64_t		st_firstmfile;	/*offsets to the start and end of*/
 	off64_t		st_lastmfile;	/* .. linked list of mediafiles */
 	char            st_cmdarg[INV_STRLEN]; /* drive path */
-	u_int		st_nmediafiles; /* number of mediafiles */
+	uint		st_nmediafiles; /* number of mediafiles */
 	bool_t		st_interrupted;	/* was this stream interrupted ? */
 	char		st_padding[16];
 } invt_stream_t;
@@ -163,7 +163,7 @@ typedef struct invt_mediafile {
 					   media file with */
 	off64_t		 mf_nextmf;	/* links to other mfiles */
 	off64_t		 mf_prevmf;
-	u_int		 mf_mfileidx; 	/* index within the media object */
+	uint		 mf_mfileidx; 	/* index within the media object */
 	u_char           mf_flag;       /* Currently MFILE_GOOD, INVDUMP */
 	off64_t		 mf_size;       /* size of the media file */
 	char		 mf_padding[15];
@@ -185,9 +185,9 @@ typedef struct invt_entry {
 /* Cheap Inheritance, and an attempt to avoid a nested type */
 #define INVT_COUNTER_FIELDS  \
         __uint32_t    ic_vernum;/* on disk version number for posterity */\
-	u_int	      ic_curnum;/* number of sessions/invindices recorded \
+	uint	      ic_curnum;/* number of sessions/invindices recorded \
 				   so far */				  \
-	u_int	      ic_maxnum;/* maximum number of sessions/inv_indices \
+	uint	      ic_maxnum;/* maximum number of sessions/inv_indices \
 				   that we can record on this stobj */
 #define INVT_COUNTER_FIELDS_SIZE 0xc
 
@@ -272,7 +272,7 @@ typedef struct invt_idxinfo {
 	int 		invfd;
 	invt_counter_t	*icnt;
 	invt_entry_t	*iarr;
-	u_int		index;
+	uint		index;
 }invt_idxinfo_t;
 
 #define INVT_MOID	1
@@ -298,13 +298,10 @@ typedef bool_t (*search_callback_t) (int, invt_seshdr_t *, void *, void *);
 
 
 #define GET_REC( fd, buf, sz, off )  \
-                 get_invtrecord( fd, buf, sz, off, SEEK_SET, INVT_DOLOCK )
+                 get_invtrecord( fd, buf, sz, off, INVT_DOLOCK )
 
 #define GET_REC_NOLOCK( fd, buf, sz, off )  \
-                 get_invtrecord( fd, buf, sz, off, SEEK_SET, INVT_DONTLOCK )
-
-#define GET_REC_SEEKCUR( fd, buf, sz, off )  \
-                 get_invtrecord( fd, buf, sz, off, SEEK_CUR, INVT_DOLOCK )
+                 get_invtrecord( fd, buf, sz, off, INVT_DONTLOCK )
 
 #define GET_ALLHDRS_N_CNTS( fd, h, c, hsz, csz ) \
                  get_headerinfo( fd, h, c, hsz, csz, INVT_DOLOCK )
@@ -313,16 +310,10 @@ typedef bool_t (*search_callback_t) (int, invt_seshdr_t *, void *, void *);
                  get_headerinfo( fd, h, c, hsz, csz, INVT_DONTLOCK )
 
 #define PUT_REC( fd, buf, sz, off )  \
-                 put_invtrecord( fd, buf, sz, off, SEEK_SET, INVT_DOLOCK )
+                 put_invtrecord( fd, buf, sz, off, INVT_DOLOCK )
 
 #define PUT_REC_NOLOCK( fd, buf, sz, off )  \
-                 put_invtrecord( fd, buf, sz, off, SEEK_SET, INVT_DONTLOCK )
-
-#define PUT_REC_SEEKCUR( fd, buf, sz, off )  \
-                 put_invtrecord( fd, buf, sz, off, SEEK_CUR, INVT_DOLOCK )
-
-#define PUT_REC_NOLOCK_SEEKCUR( fd, buf, sz, off )  \
-                 put_invtrecord( fd, buf, sz, off, SEEK_CUR, INVT_DONTLOCK )
+                 put_invtrecord( fd, buf, sz, off, INVT_DONTLOCK )
 
 
 #define GET_COUNTERS( fd, cnt ) get_counters( fd, (void **)(cnt), \
@@ -356,33 +347,33 @@ typedef bool_t (*search_callback_t) (int, invt_seshdr_t *, void *, void *);
 inv_idbtoken_t
 idx_create( char *fname, inv_oflag_t forwhat );
 
-intgen_t
+int
 idx_create_entry( inv_idbtoken_t *tok, int invfd, bool_t firstentry );
 
-intgen_t
+int
 idx_put_sesstime( inv_sestoken_t tok, bool_t whichtime);
 
 
 int
 idx_find_stobj( invt_idxinfo_t *idx, time32_t tm );
 
-u_int
+uint
 idx_insert_newentry( int fd, int *stobjfd, invt_entry_t *iarr, 
 		     invt_counter_t *icnt,
 		     time32_t tm );
-intgen_t
+int
 idx_put_newentry( invt_idxinfo_t *idx, invt_entry_t *ient );
 
 int
 idx_get_stobj( int invfd, inv_oflag_t forwhat, int *index );
 
-intgen_t
+int
 idx_recons_time( time32_t tm, invt_idxinfo_t *idx );
 
-intgen_t
-idx_DEBUG_printinvindices( invt_entry_t *iarr, u_int num );
+int
+idx_DEBUG_printinvindices( invt_entry_t *iarr, uint num );
 
-intgen_t
+int
 idx_DEBUG_print ( int fd );
 
 /*----------------------------------------------------------------------*/
@@ -390,11 +381,11 @@ idx_DEBUG_print ( int fd );
 int
 stobj_create( char *fname );
 
-intgen_t
+int
 stobj_create_session( inv_sestoken_t tok, int fd, invt_sescounter_t *sescnt, 
 		      invt_session_t *ses, invt_seshdr_t *hdr );
 
-intgen_t
+int
 stobj_put_mediafile( inv_stmtoken_t tok, invt_mediafile_t *mf );
 
 off64_t
@@ -406,7 +397,7 @@ stobj_put_session(
 	invt_stream_t *strms,
 	invt_mediafile_t *mfiles );
 
-intgen_t
+int
 stobj_put_streams( int fd, invt_seshdr_t *hdr, invt_session_t *ses, 
 		   invt_stream_t *strms,
 		   invt_mediafile_t *mfiles );
@@ -414,20 +405,20 @@ stobj_put_streams( int fd, invt_seshdr_t *hdr, invt_session_t *ses,
 int
 stobj_hdrcmp( const void *h1, const void *h2 );
 
-intgen_t
-stobj_sortheaders( int fd, u_int num );
+int
+stobj_sortheaders( int fd, uint num );
 
-u_int
-stobj_find_splitpoint( int fd, invt_seshdr_t *harr, u_int ns, time32_t tm );
+uint
+stobj_find_splitpoint( int fd, invt_seshdr_t *harr, uint ns, time32_t tm );
 
-intgen_t
+int
 stobj_split( invt_idxinfo_t *idx, int fd, invt_sescounter_t *sescnt, 
 	     invt_sessinfo_t *newsess );
 bool_t
 stobj_replace_session( int fd, invt_sescounter_t *sescnt, invt_session_t *ses,
 		       invt_seshdr_t *hdr, invt_sessinfo_t *newsess );
 
-intgen_t
+int
 stobj_delete_mfile( int fd, inv_stream_t *strm, invt_mediafile_t *mf,
 		    off64_t  mfileoff );
 
@@ -449,25 +440,25 @@ bool_t
 stobj_delete_mobj( int fd, invt_seshdr_t *hdr, void *arg,
 		   void **buf );
 
-intgen_t
+int
 stobj_get_sessinfo ( inv_sestoken_t tok, invt_seshdr_t *hdr, invt_session_t *ses );
 
 void
 stobj_makefname( char *fname );
 
-intgen_t
+int
 stobj_insert_session( invt_idxinfo_t *idx, int fd,
 		      invt_sessinfo_t *s );
 
-intgen_t
+int
 stobj_make_invsess( int fd, inv_session_t **buf, invt_seshdr_t *hdr );
 
-intgen_t
+int
 stobj_copy_invsess( int fd, invt_seshdr_t *hdr, invt_session_t *ses, 
 		    inv_session_t **buf);
 
 void
-DEBUG_sessionprint( inv_session_t *ses, u_int ref, invt_pr_ctx_t *prctx);
+DEBUG_sessionprint( inv_session_t *ses, uint ref, invt_pr_ctx_t *prctx);
 
 void
 DEBUG_sessprint( invt_session_t *ses );
@@ -494,14 +485,14 @@ stobj_convert_sessinfo(inv_session_t **buf, invt_sessinfo_t *sinfo);
 
 /*----------------------------------------------------------------------*/
 
-intgen_t
+int
 fstab_get_fname( void *pred, char *fname, inv_predicate_t bywhat, 
 		 inv_oflag_t forwhat );
 
-intgen_t
+int
 fstab_put_entry( uuid_t *fsidp, char *mntpt, char *dev, inv_oflag_t forwhat );
 
-intgen_t
+int
 fstab_getall( invt_fstab_t **arr, invt_counter_t **cnt, int *numfs, 
 	      inv_oflag_t forwhat );
 
@@ -511,14 +502,14 @@ fstab_DEBUG_print( invt_fstab_t *arr, int num );
 
 /*----------------------------------------------------------------------*/
 
-intgen_t
+int
 get_invtentry( char *fname, time32_t tm, invt_entry_t *buf, size_t bufsz );
 
-intgen_t
-get_invtrecord( int fd, void *buf, size_t bufsz, off64_t off, int, bool_t dolock );
+int
+get_invtrecord( int fd, void *buf, size_t bufsz, off64_t off, bool_t dolock );
 
-intgen_t
-put_invtrecord( int fd, void *buf, size_t bufsz, off64_t off, int, bool_t dolock );
+int
+put_invtrecord( int fd, void *buf, size_t bufsz, off64_t off, bool_t dolock );
 
 inv_idbtoken_t
 get_token( int fd, int objfd );
@@ -527,36 +518,37 @@ void
 destroy_token( inv_idbtoken_t tok );
 
 
-intgen_t
+int
 get_headers( int fd, void **hdrs, size_t bufsz, size_t cntsz );
 
-intgen_t
+int
 get_counters( int fd, void **cntpp, size_t sz );
 
-intgen_t
+int
 get_sescounters( int fd, invt_sescounter_t **cntpp );
 
-intgen_t
+int
 get_lastheader( int fd, void **ent, size_t hdrsz,  size_t cntsz );
 
 
 inv_sestoken_t
 get_sesstoken( inv_idbtoken_t tok );
 
-intgen_t
+int
 get_headerinfo( int fd, void **hdrs, void **cnt,
 	        size_t hdrsz, size_t cntsz, bool_t doblock );
 
 bool_t
-invmgr_query_all_sessions (void *inarg,	void **outarg, search_callback_t func);
+invmgr_query_all_sessions(uuid_t *fsidp, void *inarg, void **outarg,
+			  search_callback_t func);
 
-intgen_t
-search_invt( int invfd, void *arg, void **buf, 
-	    search_callback_t do_chkcriteria );
-intgen_t
+int
+search_invt(uuid_t *fsidp, int invfd, void *arg, void **buf,
+	    search_callback_t do_chkcriteria);
+int
 invmgr_inv_print( int invfd, invt_pr_ctx_t *prctx);
 
-intgen_t
+int
 invmgr_inv_check( int invfd );
 
 bool_t
@@ -570,18 +562,18 @@ lastsess_level_lessthan( int fd, invt_seshdr_t *hdr,  void *arg,
 bool_t
 lastsess_level_equalto( int fd, invt_seshdr_t *hdr,  void *arg, void **buf );
 
-intgen_t
-DEBUG_displayallsessions( int fd, invt_seshdr_t *hdr, u_int ref, 
+int
+DEBUG_displayallsessions( int fd, invt_seshdr_t *hdr, uint ref, 
 			  invt_pr_ctx_t *prctx);
 
-intgen_t
+int
 make_invdirectory( inv_oflag_t forwhat );
 
 bool_t
 init_idb( void *pred, inv_predicate_t bywhat, inv_oflag_t forwhat, 
 	 inv_idbtoken_t *tok );
 
-intgen_t
+int
 inv_getopt( int argc, char **argv, invt_pr_ctx_t *prctx);
 
 bool_t

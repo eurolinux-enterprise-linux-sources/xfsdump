@@ -19,6 +19,8 @@
 #include <xfs/xfs.h>
 #include <xfs/jdm.h>
 
+#include <unistd.h>
+#include <stdlib.h>
 #include <fcntl.h>
 #include <time.h>
 #include <stdlib.h>
@@ -26,6 +28,11 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <sys/stat.h>
+#include <assert.h>
+#include <string.h>
+#include <uuid/uuid.h>
+
+#include "config.h"
 
 #include "types.h"
 #include "mlog.h"
@@ -48,7 +55,7 @@ inv_open( inv_predicate_t bywhat, inv_oflag_t forwhat, void *pred )
 
 	int index = 0;
 	
-	ASSERT ( pred );
+	assert ( pred );
 	fd = retval = init_idb ( pred, bywhat, forwhat, &tok );
 
 	if ( retval == I_DONE ) 
@@ -72,7 +79,7 @@ inv_open( inv_predicate_t bywhat, inv_oflag_t forwhat, void *pred )
 		return INV_TOKEN_NULL;
 	}
 
-	ASSERT ( index > 0 );
+	assert ( index > 0 );
 
 	/* Now we need to make sure that this has enough space */
 	INVLOCK( stobjfd, LOCK_SH );
@@ -88,7 +95,7 @@ inv_open( inv_predicate_t bywhat, inv_oflag_t forwhat, void *pred )
 	/* create another storage object ( and, an inv_index entry for it 
 	   too ) if we've filled this one up */
 
-	if ( (u_int) num >= sescnt->ic_maxnum ) {
+	if ( (uint) num >= sescnt->ic_maxnum ) {
 		mlog( MLOG_DEBUG | MLOG_INV, "$ INV: creating a new storage obj & "
 		      "index entry. \n" );
 		INVLOCK( stobjfd, LOCK_UN );
@@ -157,25 +164,25 @@ inv_writesession_open(
 	bool_t		ispartial,
 	bool_t		isresumed,
 	u_char		level,
-	u_int		nstreams,
+	uint		nstreams,
 	time32_t	time,
 	char		*mntpt,
 	char		*devpath )
 {
 	invt_session_t  ses;
 	int		fd;
-	intgen_t	rval;
+	int	rval;
 	invt_sescounter_t *sescnt = NULL;
 	invt_seshdr_t  	hdr;
 	inv_sestoken_t	sestok;
 	inv_oflag_t     forwhat;
 
-	ASSERT ( tok != INV_TOKEN_NULL );
-	ASSERT ( sesid && fsid && mntpt && devpath );
+	assert ( tok != INV_TOKEN_NULL );
+	assert ( sesid && fsid && mntpt && devpath );
 	forwhat = tok->d_oflag;
 	fd = tok->d_stobj_fd;
-	ASSERT ( forwhat != INV_SEARCH_ONLY );
-	ASSERT ( fd > 0 );
+	assert ( forwhat != INV_SEARCH_ONLY );
+	assert ( fd > 0 );
 
 	if ( ! ( tok->d_update_flag & FSTAB_UPDATED ) ) {
 		if ( fstab_put_entry( fsid, mntpt, devpath, forwhat ) < 0 ) {
@@ -218,7 +225,7 @@ inv_writesession_open(
 	/* create the writesession, and get ready for the streams to come 
 	   afterwards */
 	rval = stobj_create_session( sestok, fd, sescnt, &ses, &hdr );
-	ASSERT (rval > 0);
+	assert (rval > 0);
 
 
 	INVLOCK( fd, LOCK_UN );
@@ -256,7 +263,7 @@ inv_writesession_close( inv_sestoken_t tok )
 {
 	int		rval;
 	
-	ASSERT ( tok != INV_TOKEN_NULL );
+	assert ( tok != INV_TOKEN_NULL );
 
 	/* now update end_time in the inv index header */
 	rval = idx_put_sesstime( tok, INVT_ENDTIME );
@@ -287,7 +294,7 @@ inv_stream_open(
 	int fd;
 	bool_t err = BOOL_FALSE;
 
-	ASSERT ( tok != INV_TOKEN_NULL );
+	assert ( tok != INV_TOKEN_NULL );
 	 
 	/* this memset is needed as a dump interrupted/crashed very soon
 	 * after starting results in an inventory with exteremely large
@@ -402,9 +409,8 @@ inv_stream_close(
 		}
 			
 		if (dowrite) {
-			rval = PUT_REC_NOLOCK_SEEKCUR( fd, &strm, 
-			             sizeof( invt_stream_t ),
-				     -(off64_t)(sizeof( invt_stream_t )) );
+			rval = PUT_REC_NOLOCK(fd, &strm, sizeof(invt_stream_t),
+					      tok->md_stream_off);
 		}
 	}
 
@@ -433,7 +439,7 @@ inv_put_mediafile(
 	inv_stmtoken_t 	tok, 
 	uuid_t 		*moid, 
 	char 		*label,
-	u_int		mfileindex,
+	uint		mfileindex,
 	xfs_ino_t	startino,
 	off64_t		startino_offset,
 	xfs_ino_t	endino,
@@ -446,9 +452,9 @@ inv_put_mediafile(
 	int 		 rval;
 
 
-	ASSERT ( tok != INV_TOKEN_NULL );
-	ASSERT ( tok->md_sesstok->sd_invtok->d_update_flag & FSTAB_UPDATED );
-	ASSERT ( tok->md_sesstok->sd_invtok->d_stobj_fd >= 0 );
+	assert ( tok != INV_TOKEN_NULL );
+	assert ( tok->md_sesstok->sd_invtok->d_update_flag & FSTAB_UPDATED );
+	assert ( tok->md_sesstok->sd_invtok->d_stobj_fd >= 0 );
 
 	mf = (invt_mediafile_t *) calloc( 1, sizeof( invt_mediafile_t ) );
 	
@@ -512,8 +518,8 @@ inv_get_sessioninfo(
 	int		fd;
 
 
-	ASSERT( tok != INV_TOKEN_NULL );
-	ASSERT( tok->sd_invtok );
+	assert( tok != INV_TOKEN_NULL );
+	assert( tok->sd_invtok );
 	*bufpp = NULL;
 	*bufszp = 0;
 	fd = tok->sd_invtok->d_stobj_fd;
@@ -579,8 +585,8 @@ inv_free_session(
 {
 	uint i;
 	
-	ASSERT(ses);
-	ASSERT(*ses);
+	assert(ses);
+	assert(*ses);
 
 	for ( i = 0; i < (*ses)->s_nstreams; i++ ) {
 		/* the array of mediafiles is contiguous */
@@ -596,69 +602,78 @@ inv_free_session(
 
 
 /*----------------------------------------------------------------------*/
-/* inventory_lasttime_level_lessthan					*/
-/*                                                                      */
-/* Given a token that refers to a file system, and a level, this returns*/
-/* the last time when a session of a lesser level was done.             */
-/*                                                                      */
-/* returns -1 on error.                                                 */
+/* inv_lasttime_level_lessthan						*/
+/*									*/
+/* Given a file system uuid, token that refers to a file system, and a	*/
+/* level, tm is populated with last time when a session of a lesser	*/
+/* level was done.							*/
+/*									*/
+/* Returns TRUE on success.						*/
 /*----------------------------------------------------------------------*/
 
 bool_t
 inv_lasttime_level_lessthan( 
-	inv_idbtoken_t  tok,
-	u_char level,
-	time32_t **tm )
+	uuid_t		*fsidp,
+	inv_idbtoken_t	tok,
+	u_char		level,
+	time32_t	**tm)
 {
 	int 	rval;
 	if ( tok != INV_TOKEN_NULL ) {
-		rval =  search_invt( tok->d_invindex_fd, &level, (void **) tm,
-				    (search_callback_t) tm_level_lessthan );
+		rval =  search_invt(fsidp, tok->d_invindex_fd, &level,
+				    (void **)tm,
+				    (search_callback_t)tm_level_lessthan);
 
 		return ( rval < 0) ? BOOL_FALSE: BOOL_TRUE;
 	}
 	
-	return invmgr_query_all_sessions((void *) &level, /* in */
-					 (void **) tm,   /* out */
-			       (search_callback_t) tm_level_lessthan); 
+	return invmgr_query_all_sessions(fsidp,		 /* fs uuid ptr */
+					 (void *)&level, /* in */
+					 (void **)tm,	 /* out */
+			       (search_callback_t)tm_level_lessthan);
 }
 
-
-
-
-
 /*----------------------------------------------------------------------*/
-/*                                                                      */
-/*                                                                      */
-/*                                                                      */
+/* inv_lastsession_level_lessthan					*/
+/*									*/
+/* Given a file system uuid, token that refers to a file system, and a	*/
+/* level, ses is populated with a session of lesser than the level	*/
+/* passed in.								*/
+/*									*/
+/* Returns FALSE on an error, TRUE if not. If (*ses) is NULL, then the	*/
+/* search failed.                                                       */
 /*----------------------------------------------------------------------*/
 
 bool_t
 inv_lastsession_level_lessthan( 
-	inv_idbtoken_t 	tok,
+	uuid_t		*fsidp,
+	inv_idbtoken_t	tok,
 	u_char		level,
-	inv_session_t 	**ses )
+	inv_session_t	**ses)
 {
 	int 	rval;
 	if ( tok != INV_TOKEN_NULL ) {
-		rval = search_invt( tok->d_invindex_fd, &level, (void **) ses, 
-				   (search_callback_t) lastsess_level_lessthan );
+		rval = search_invt(fsidp, tok->d_invindex_fd, &level,
+				   (void **)ses,
+				   (search_callback_t)lastsess_level_lessthan);
 
 		return ( rval < 0) ? BOOL_FALSE: BOOL_TRUE;
 	}
 
-	return invmgr_query_all_sessions((void *) &level, /* in */
-					 (void **) ses,   /* out */
-			       (search_callback_t) lastsess_level_lessthan);
+	return invmgr_query_all_sessions(fsidp,		 /* fs uuid */
+					 (void *)&level, /* in */
+					 (void **)ses,	 /* out */
+			       (search_callback_t)lastsess_level_lessthan);
 
 }
 
-
-
-
 /*----------------------------------------------------------------------*/
-/*                                                                      */
-/*                                                                      */
+/* inv_lastsession_level_equalto					*/
+/*									*/
+/* Given a file system uuid, token that refers to a file system, and a	*/
+/* level, this populates ses with last time when a session of a lesser	*/
+/* level was done.							*/
+/*									*/
 /* Return FALSE on an error, TRUE if not. If (*ses) is NULL, then the   */
 /* search failed.                                                       */
 /*----------------------------------------------------------------------*/
@@ -666,21 +681,24 @@ inv_lastsession_level_lessthan(
 
 bool_t
 inv_lastsession_level_equalto( 
-	inv_idbtoken_t 	tok,			    
+	uuid_t		*fsidp,
+	inv_idbtoken_t	tok,
 	u_char		level,
 	inv_session_t	**ses )
 {
 	int 	rval;
 	if ( tok != INV_TOKEN_NULL ) {
-		rval = search_invt( tok->d_invindex_fd, &level, (void **) ses, 
-				   (search_callback_t) lastsess_level_equalto );
+		rval = search_invt(fsidp, tok->d_invindex_fd, &level,
+				   (void **)ses,
+				   (search_callback_t)lastsess_level_equalto);
 
 		return ( rval < 0) ? BOOL_FALSE: BOOL_TRUE;
 	}
 	
-	return invmgr_query_all_sessions((void *) &level, /* in */
-					 (void **) ses,   /* out */
-			       (search_callback_t) lastsess_level_equalto);
+	return invmgr_query_all_sessions(fsidp,		 /* fs uuid */
+					 (void *)&level, /* in */
+					 (void **)ses,	 /* out */
+			       (search_callback_t)lastsess_level_equalto);
 
 }
 
@@ -688,35 +706,45 @@ inv_lastsession_level_equalto(
 /*----------------------------------------------------------------------*/
 /* inv_getsession_byuuid                                                */
 /*                                                                      */
+/* Given a file system uuid and a session uuid , ses is populated with	*/
+/* the session that contains the matching system uuid.			*/
+/*									*/
+/* Returns FALSE on an error, TRUE if the session was found.		*/
 /*----------------------------------------------------------------------*/
 
 bool_t
 inv_get_session_byuuid(
-	uuid_t	*sesid,
-	inv_session_t **ses)
+	uuid_t		*fsidp,
+	uuid_t		*sesid,
+	inv_session_t	**ses)
 {
 
-	return (invmgr_query_all_sessions((void *)sesid, /* in */
-					  (void **) ses, /* out */
-			       (search_callback_t) stobj_getsession_byuuid));
+	return invmgr_query_all_sessions(fsidp,		/* fs uuid */
+					 (void *)sesid, /* in */
+					 (void **)ses,	/* out */
+			       (search_callback_t)stobj_getsession_byuuid);
 }
 
-
-
 /*----------------------------------------------------------------------*/
-/* inv_getsession_byuuid                                                */
+/* inv_getsession_bylabel						*/
 /*                                                                      */
+/* Given a file system uuid and a session uuid, ses is populated with	*/
+/* the session that contains the matching system label.			*/
+/*									*/
+/* Returns FALSE on an error, TRUE if the session was found.		*/
 /*----------------------------------------------------------------------*/
 
 bool_t
 inv_get_session_bylabel(
-	char *session_label,
-	inv_session_t **ses)
+	uuid_t		*fsidp,
+	char		*session_label,
+	inv_session_t	**ses)
 {
 
-	return (invmgr_query_all_sessions((void *)session_label, /* in */
-					  (void **) ses, /* out */
-			       (search_callback_t) stobj_getsession_bylabel));
+	return invmgr_query_all_sessions(fsidp,			/* fs uuid */
+					 (void *)session_label, /* in */
+					 (void **)ses,		/* out */
+			       (search_callback_t)stobj_getsession_bylabel);
 }
 
 
@@ -786,8 +814,8 @@ inv_delete_mediaobj( uuid_t *moid )
 			return BOOL_FALSE;
 		}
 
-		if ( search_invt( invfd, NULL, (void **)&moid, 
-				  (search_callback_t) stobj_delete_mobj )
+		if (search_invt(&arr[i].ft_uuid, invfd, NULL, (void **)&moid,
+				(search_callback_t)stobj_delete_mobj)
 		    < 0 )
 			return BOOL_FALSE;
 		/* we have to delete the session, etc */
@@ -839,10 +867,10 @@ static const char *myopts[] = {
 };
 
 
-intgen_t
+int
 inv_getopt(int argc, char **argv, invt_pr_ctx_t *prctx) 
 {
-	intgen_t rval = 0;
+	int rval = 0;
 	void *fs = 0;
 	char *options, *value;
 	extern char *optarg;

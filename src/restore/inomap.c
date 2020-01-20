@@ -19,6 +19,8 @@
 #include <xfs/xfs.h>
 #include <xfs/jdm.h>
 
+#include <unistd.h>
+#include <stdlib.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <errno.h>
@@ -26,6 +28,10 @@
 #include <fcntl.h>
 #include <dirent.h>
 #include <time.h>
+#include <assert.h>
+#include <string.h>
+
+#include "config.h"
 
 #include "types.h"
 #include "util.h"
@@ -71,8 +77,8 @@ extern size_t pgsz;
 
 /* inomap primitives
  */
-static intgen_t map_getset( xfs_ino_t, intgen_t, bool_t );
-static intgen_t map_set( xfs_ino_t ino, intgen_t );
+static int map_getset( xfs_ino_t, int, bool_t );
+static int map_set( xfs_ino_t ino, int );
 static seg_t * map_getsegment( xfs_ino_t ino );
 
 /* definition of locally defined global variables ****************************/
@@ -80,14 +86,14 @@ static seg_t * map_getsegment( xfs_ino_t ino );
 
 /* definition of locally defined static variables *****************************/
 
-static intgen_t pers_fd = -1;
+static int pers_fd = -1;
 	/* file descriptor for persistent inomap backing store
 	 */
 
 /* context for inomap construction - initialized by inomap_restore_pers
  */
-static u_int64_t hnkcnt;
-static u_int64_t segcnt;
+static uint64_t hnkcnt;
+static uint64_t segcnt;
 static hnk_t *roothnkp = 0;
 static hnk_t *tailhnkp;
 static seg_t *lastsegp;
@@ -97,13 +103,13 @@ static xfs_ino_t last_ino_added;
  */
 
 static inline void
-SEG_SET_BITS( seg_t *segp, xfs_ino_t ino, intgen_t state )
+SEG_SET_BITS( seg_t *segp, xfs_ino_t ino, int state )
 {
 	register xfs_ino_t relino;
-	register u_int64_t mask;
-	register u_int64_t clrmask;
+	register uint64_t mask;
+	register uint64_t clrmask;
 	relino = ino - segp->base;
-	mask = ( u_int64_t )1 << relino;
+	mask = ( uint64_t )1 << relino;
 	clrmask = ~mask;
 	switch( state ) {
 	case 0:
@@ -149,14 +155,14 @@ SEG_SET_BITS( seg_t *segp, xfs_ino_t ino, intgen_t state )
 	}
 }
 
-static inline intgen_t
+static inline int
 SEG_GET_BITS( seg_t *segp, xfs_ino_t ino )
 {
-	intgen_t state;
+	int state;
 	register xfs_ino_t relino;
-	register u_int64_t mask;
+	register uint64_t mask;
 	relino = ino - segp->base;
-	mask = ( u_int64_t )1 << relino;
+	mask = ( uint64_t )1 << relino;
 	if ( segp->lobits & mask ) {
 		state = 1;
 	} else {
@@ -184,20 +190,20 @@ inomap_restore_pers( drive_t *drivep,
 	pers_t *persp;
 	hnk_t *pershnkp;
 	hnk_t *tmphnkp;
-	intgen_t fd;
+	int fd;
 	/* REFERENCED */
-	intgen_t nread;
-	intgen_t rval;
+	int nread;
+	int rval;
 	/* REFERENCED */
-	intgen_t rval1;
+	int rval1;
 	int i;
 	bool_t ok;
 
 	/* sanity checks
 	 */
-	ASSERT( INOPERSEG == ( sizeof( (( seg_t * )0 )->lobits ) * NBBY ));
-	ASSERT( sizeof( hnk_t ) == HNKSZ );
-	ASSERT( sizeof( pers_t ) <= PERSSZ );
+	assert( INOPERSEG == ( sizeof( (( seg_t * )0 )->lobits ) * NBBY ));
+	assert( sizeof( hnk_t ) == HNKSZ );
+	assert( sizeof( pers_t ) <= PERSSZ );
 
 	/* get inomap info from media hdr
 	 */
@@ -243,7 +249,7 @@ inomap_restore_pers( drive_t *drivep,
 	persp->last_ino_added = last_ino_added;
 
 	tmphnkp = ( hnk_t * )calloc( ( size_t )hnkcnt, sizeof( hnk_t ));
-	ASSERT( tmphnkp );
+	assert( tmphnkp );
 
 	/* read the map in from media
 	 */
@@ -268,7 +274,7 @@ inomap_restore_pers( drive_t *drivep,
 		        PERSSZ
 		        +
 		        sizeof( hnk_t ) * ( size_t )hnkcnt );
-	ASSERT( ! rval1 );
+	assert( ! rval1 );
 	( void )close( fd );
 	free( ( void * )perspath );
 
@@ -278,7 +284,7 @@ inomap_restore_pers( drive_t *drivep,
 	 */
 	switch( rval ) {
 	case 0:
-		ASSERT( ( size_t )nread == sizeof( hnk_t ) * ( size_t )hnkcnt );
+		assert( ( size_t )nread == sizeof( hnk_t ) * ( size_t )hnkcnt );
 		ok = inomap_sync_pers( hkdir );
 		if ( ! ok ) {
 			return RV_ERROR;
@@ -304,10 +310,10 @@ rv_t
 inomap_discard( drive_t *drivep, content_inode_hdr_t *scrhdrp )
 {
 	drive_ops_t *dop = drivep->d_opsp;
-	u_int64_t tmphnkcnt;
+	uint64_t tmphnkcnt;
 	/* REFERENCED */
-	intgen_t nread;
-	intgen_t rval;
+	int nread;
+	int rval;
 
 	/* get inomap info from media hdr
 	 */
@@ -325,7 +331,7 @@ inomap_discard( drive_t *drivep, content_inode_hdr_t *scrhdrp )
 	 */
 	switch( rval ) {
 	case 0:
-		ASSERT( ( size_t )nread == sizeof( hnk_t ) * ( size_t )hnkcnt );
+		assert( ( size_t )nread == sizeof( hnk_t ) * ( size_t )hnkcnt );
 		return RV_OK;
 	case DRIVE_ERROR_EOD:
 	case DRIVE_ERROR_EOF:
@@ -350,7 +356,7 @@ inomap_sync_pers( char *hkdir )
 
 	/* sanity checks
 	 */
-	ASSERT( sizeof( hnk_t ) == HNKSZ );
+	assert( sizeof( hnk_t ) == HNKSZ );
 
 	/* only needed once per session
 	 */
@@ -388,7 +394,7 @@ inomap_sync_pers( char *hkdir )
 
 	/* mmap the pers inomap
 	 */
-	ASSERT( hnkcnt * sizeof( hnk_t ) <= ( size64_t )INT32MAX );
+	assert( hnkcnt * sizeof( hnk_t ) <= ( size64_t )INT32MAX );
 	roothnkp = ( hnk_t * ) mmap_autogrow(
 				       sizeof( hnk_t ) * ( size_t )hnkcnt,
 				       pers_fd,
@@ -405,7 +411,7 @@ inomap_sync_pers( char *hkdir )
 	 */
 	for ( hnkp = roothnkp
 	      ;
-	      hnkp < roothnkp + ( intgen_t )hnkcnt - 1
+	      hnkp < roothnkp + ( int )hnkcnt - 1
 	      ;
 	      hnkp++ ) {
 		hnkp->nextp = hnkp + 1;
@@ -415,8 +421,8 @@ inomap_sync_pers( char *hkdir )
 	/* calculate the tail pointers
 	 */
 	tailhnkp = hnkp;
-	ASSERT( hnkcnt > 0 );
-	lastsegp = &tailhnkp->seg[ ( intgen_t )( segcnt
+	assert( hnkcnt > 0 );
+	lastsegp = &tailhnkp->seg[ ( int )( segcnt
 						 -
 						 SEGPERHNK * ( hnkcnt - 1 )
 						 -
@@ -466,7 +472,7 @@ inomap_sanitize( void )
 			      ino < segp->base + INOPERSEG
 			      ;
 			      ino++ ) {
-				intgen_t state;
+				int state;
 				if ( ino > last_ino_added ) {
 					return;
 				}
@@ -485,7 +491,7 @@ inomap_sanitize( void )
 void
 inomap_rst_add( xfs_ino_t ino )
 {
-		ASSERT( pers_fd >= 0 );
+		assert( pers_fd >= 0 );
 		( void )map_set( ino, MAP_NDR_CHANGE );
 }
 
@@ -494,7 +500,7 @@ inomap_rst_add( xfs_ino_t ino )
 void
 inomap_rst_del( xfs_ino_t ino )
 {
-		ASSERT( pers_fd >= 0 );
+		assert( pers_fd >= 0 );
 		( void )map_set( ino, MAP_NDR_NOREST );
 }
 
@@ -546,7 +552,7 @@ begin:
 			return BOOL_FALSE;
 		}
 		for ( ino = segp->base ; ino < segp->base + INOPERSEG ; ino++ ){
-			intgen_t state;
+			int state;
 			if ( ino < firstino ) {
 				continue;
 			}
@@ -578,7 +584,7 @@ begin:
  * returns FALSE.
  */
 void
-inomap_cbiter( intgen_t statemask,
+inomap_cbiter( int statemask,
 	       bool_t ( * cbfunc )( void *ctxp, xfs_ino_t ino ),
 	       void *ctxp )
 {
@@ -606,7 +612,7 @@ inomap_cbiter( intgen_t statemask,
 			      ino < segp->base + INOPERSEG
 			      ;
 			      ino++ ) {
-				intgen_t state;
+				int state;
 				if ( ino > last_ino_added ) {
 					return;
 				}
@@ -628,10 +634,10 @@ inomap_cbiter( intgen_t statemask,
 /* map_getset - locates and gets the state of the specified ino,
  * and optionally sets the state to a new value.
  */
-static intgen_t
-map_getset( xfs_ino_t ino, intgen_t newstate, bool_t setflag )
+static int
+map_getset( xfs_ino_t ino, int newstate, bool_t setflag )
 {
-	intgen_t state;
+	int state;
 	seg_t *segp;
 
 	if ((segp = map_getsegment( ino )) == NULL) {
@@ -648,10 +654,10 @@ map_getset( xfs_ino_t ino, intgen_t newstate, bool_t setflag )
 static seg_t *
 map_getsegment( xfs_ino_t ino )
 {
-	u_int64_t min;
-	u_int64_t max;
-	u_int64_t hnk;
-	u_int64_t seg;
+	uint64_t min;
+	uint64_t max;
+	uint64_t hnk;
+	uint64_t seg;
 
 	/* Use binary search to find the hunk that contains the inode number,
 	 * if any.  This counts on the fact that all the hunks are contiguous
@@ -703,10 +709,10 @@ map_getsegment( xfs_ino_t ino )
 	return NULL;
 }
 
-static intgen_t
-map_set( xfs_ino_t ino, intgen_t state )
+static int
+map_set( xfs_ino_t ino, int state )
 {
-	intgen_t oldstate;
+	int oldstate;
 
  	oldstate = map_getset( ino, state, BOOL_TRUE );
 	return oldstate;

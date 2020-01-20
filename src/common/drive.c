@@ -16,14 +16,17 @@
  * Inc.,  51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
-#include <xfs/xfs.h>
-#include <xfs/jdm.h>
-
+#include <stdio.h>
+#include <unistd.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <assert.h>
+#include <string.h>
+#include <uuid/uuid.h>
+
+#include "config.h"
 
 #include "types.h"
-#include "util.h"
 #include "mlog.h"
 #include "dlog.h"
 #include "path.h"
@@ -83,12 +86,12 @@ static drive_strategy_t *strategypp[] = {
 bool_t
 drive_init1( int argc, char *argv[ ] )
 {
-	intgen_t c;
+	int c;
 	ix_t driveix;
 
 	/* sanity check asserts
 	 */
-	ASSERT( sizeof( drive_hdr_t ) == DRIVE_HDR_SZ );
+	assert( sizeof( drive_hdr_t ) == DRIVE_HDR_SZ );
 
 	/* count drive arguments
 	 */
@@ -107,7 +110,7 @@ drive_init1( int argc, char *argv[ ] )
 	 */
 	if (drivecnt > 0) {
 		drivepp = ( drive_t ** )calloc( drivecnt, sizeof( drive_t * ));
-		ASSERT( drivepp );
+		assert( drivepp );
 	}
 
 	/* initialize the partialmax value.  Each drive can be completing a file
@@ -142,7 +145,7 @@ drive_init1( int argc, char *argv[ ] )
 			break;
 		}
 	}
-	ASSERT( driveix == drivecnt );
+	assert( driveix == drivecnt );
 
 	/* the user may specify stdin as the source, by
 	 * a single dash ('-') with no option letter. This must appear
@@ -169,7 +172,7 @@ drive_init1( int argc, char *argv[ ] )
 		 * allocate an array to hold ptrs to drive descriptors
 		 */
 		drivepp = ( drive_t ** )calloc( drivecnt, sizeof( drive_t * ));
-		ASSERT( drivepp );
+		assert( drivepp );
 
 		drivepp[ 0 ] = drive_alloc( "stdio", 0 );
 
@@ -198,7 +201,7 @@ drive_init1( int argc, char *argv[ ] )
 	 */
 	for ( driveix = 0 ; driveix < drivecnt ; driveix++ ) {
 		drive_t *drivep = drivepp[ driveix ];
-		intgen_t bestscore = 0 - INTGENMAX;
+		int bestscore = 0 - INTGENMAX;
 		ix_t six;
 		ix_t scnt = sizeof( strategypp ) / sizeof( strategypp[ 0 ] );
 		drive_strategy_t *bestsp = 0;
@@ -206,7 +209,7 @@ drive_init1( int argc, char *argv[ ] )
 
 		for ( six = 0 ; six < scnt ; six++ ) {
 			drive_strategy_t *sp = strategypp[ six ];
-			intgen_t score;
+			int score;
 			score = ( * sp->ds_match )( argc,
 						    argv,
 						    drivep );
@@ -215,7 +218,7 @@ drive_init1( int argc, char *argv[ ] )
 				bestscore = score;
 			}
 		}
-		ASSERT( bestsp );
+		assert( bestsp );
 		drivep->d_strategyp = bestsp;
 		drivep->d_recmarksep = bestsp->ds_recmarksep;
 		drivep->d_recmfilesz = bestsp->ds_recmfilesz;
@@ -356,7 +359,7 @@ drive_alloc( char *pathname, ix_t driveix )
 	/* allocate the descriptor
 	 */
 	drivep = ( drive_t * )calloc( 1, sizeof( drive_t ));
-	ASSERT( drivep );
+	assert( drivep );
 
 	/* convert the pathname to an absolute pathname
 	 * NOTE: string "stdio" is reserved to mean send to standard out
@@ -397,7 +400,7 @@ drive_allochdrs( drive_t *drivep, global_hdr_t *gwhdrtemplatep, ix_t driveix )
 	/* allocate the read header
 	 */
 	grhdrp = ( global_hdr_t * )calloc( 1, sizeof( global_hdr_t ));
-	ASSERT( grhdrp );
+	assert( grhdrp );
 	gwhdrp = NULL;
 	dwhdrp = NULL;
 
@@ -411,7 +414,7 @@ drive_allochdrs( drive_t *drivep, global_hdr_t *gwhdrtemplatep, ix_t driveix )
 		/* allocate the write header
 		 */
 		gwhdrp = ( global_hdr_t * )calloc( 1, sizeof( global_hdr_t ));
-		ASSERT( gwhdrp );
+		assert( gwhdrp );
 
 		/* copy the template
 		 */

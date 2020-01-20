@@ -15,13 +15,18 @@
  * along with this program; if not, write the Free Software Foundation,
  * Inc.,  51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
-#include <xfs/xfs.h>
-#include <xfs/jdm.h>
 
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <limits.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <assert.h>
+#include <string.h>
+
+#include "config.h"
 
 #include "types.h"
 #include "mlog.h"
@@ -56,7 +61,7 @@ open_pathalloc( char *dirname, char *basename, pid_t pid )
   	}
 	namelen = dirlen + 1 + strlen( basename ) + pidlen + 1;
 	namebuf = ( char * )calloc( 1, namelen );
-  	ASSERT( namebuf );
+  	assert( namebuf );
 
   	if ( pid ) {
 		( void )snprintf( namebuf, namelen, "%s/%s.%d", dirname, basename, pid );
@@ -67,10 +72,10 @@ open_pathalloc( char *dirname, char *basename, pid_t pid )
   	return namebuf;
 }
 
-intgen_t
+int
 open_trwp( char *pathname )
 {
-	intgen_t fd;
+	int fd;
 
 	fd = open( pathname, O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR );
 	if ( fd < 0 ) {
@@ -83,10 +88,10 @@ open_trwp( char *pathname )
 	return fd;
 }
 
-intgen_t
+int
 open_erwp( char *pathname )
 {
-	intgen_t fd;
+	int fd;
 
 	fd = open( pathname, O_EXCL | O_CREAT | O_RDWR, S_IRUSR | S_IWUSR );
 	if ( fd < 0 ) {
@@ -99,31 +104,31 @@ open_erwp( char *pathname )
 	return fd;
 }
 
-intgen_t
+int
 open_rwp( char *pathname )
 {
-	intgen_t fd;
+	int fd;
 
 	fd = open( pathname, O_RDWR );
 
 	return fd;
 }
 
-intgen_t
+int
 mkdir_tp( char *pathname )
 {
-	intgen_t rval;
+	int rval;
 
 	rval = mkdir( pathname, S_IRWXU );
 
 	return rval;
 }
 
-intgen_t
+int
 open_trwdb( char *dirname, char *basename, pid_t pid )
 {
 	char *pathname;
-	intgen_t fd;
+	int fd;
 
 	pathname = open_pathalloc( dirname, basename, pid );
 	fd = open_trwp( pathname );
@@ -132,11 +137,11 @@ open_trwdb( char *dirname, char *basename, pid_t pid )
 	return fd;
 }
 
-intgen_t
+int
 open_erwdb( char *dirname, char *basename, pid_t pid )
 {
 	char *pathname;
-	intgen_t fd;
+	int fd;
 
 	pathname = open_pathalloc( dirname, basename, pid );
 	fd = open_erwp( pathname );
@@ -145,11 +150,11 @@ open_erwdb( char *dirname, char *basename, pid_t pid )
 	return fd;
 }
 
-intgen_t
+int
 open_rwdb( char *dirname, char *basename, pid_t pid )
 {
 	char *pathname;
-	intgen_t fd;
+	int fd;
 
 	pathname = open_pathalloc( dirname, basename, pid );
 	fd = open_rwp( pathname );

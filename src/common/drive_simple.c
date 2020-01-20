@@ -19,15 +19,25 @@
 #include <xfs/xfs.h>
 #include <xfs/jdm.h>
 
+#include <unistd.h>
+#include <stdlib.h>
 #include <sys/stat.h>
+#include <sys/param.h>
 #include <fcntl.h>
 #include <time.h>
 #include <errno.h>
 #include <malloc.h>
 #include <sched.h>
+#include <assert.h>
+#include <string.h>
+#include <uuid/uuid.h>
+#include <xfs/xfs.h>
+#include <xfs/jdm.h>	/* needed only for util.h include */
+
+#include "config.h"
 
 #include "types.h"
-#include "util.h"
+#include "util.h"	/* needed onyl for I/O routines */
 #include "stream.h"
 #include "mlog.h"
 #include "global.h"
@@ -78,7 +88,7 @@ struct drive_context {
 	char *dc_nextp;		/* next byte avail. to read/write */
 	char *dc_emptyp;	/* first empty slot in buffer */
 	off64_t dc_bufstroff;	/* offset in stream of top of buf */
-	intgen_t dc_fd;		/* input/output file descriptor */
+	int dc_fd;		/* input/output file descriptor */
 	drive_mark_t dc_firstmark;/* first mark's offset within mfile (dump) */
 	ix_t dc_markcnt;	/* count of marks set (dump) */
 	bool_t dc_rampr;	/* can randomly access file (not a pipe) */
@@ -98,30 +108,30 @@ extern size_t pgsz;
 
 /* strategy functions
  */
-static intgen_t ds_match( int, char *[], drive_t * );
-static intgen_t ds_instantiate( int, char *[], drive_t * );
+static int ds_match( int, char *[], drive_t * );
+static int ds_instantiate( int, char *[], drive_t * );
 
 /* declare manager operators
  */
 static bool_t do_init( drive_t * );
 static bool_t do_sync( drive_t * );
-static intgen_t do_begin_read( drive_t * );
-static char *do_read( drive_t *, size_t , size_t *, intgen_t * );
+static int do_begin_read( drive_t * );
+static char *do_read( drive_t *, size_t , size_t *, int * );
 static void do_return_read_buf( drive_t *, char *, size_t );
 static void do_get_mark( drive_t *, drive_mark_t * );
-static intgen_t do_seek_mark( drive_t *, drive_mark_t * );
-static intgen_t do_next_mark( drive_t * );
+static int do_seek_mark( drive_t *, drive_mark_t * );
+static int do_next_mark( drive_t * );
 static void do_get_mark( drive_t *, drive_mark_t * );
 static void do_end_read( drive_t * );
-static intgen_t do_begin_write( drive_t * );
+static int do_begin_write( drive_t * );
 static void do_set_mark( drive_t *, drive_mcbfp_t, void *, drive_markrec_t * );
 static char * do_get_write_buf( drive_t *, size_t , size_t * );
-static intgen_t do_write( drive_t *, char *, size_t );
+static int do_write( drive_t *, char *, size_t );
 static size_t do_get_align_cnt( drive_t * );
-static intgen_t do_end_write( drive_t *, off64_t * );
-static intgen_t do_rewind( drive_t * );
-static intgen_t do_erase( drive_t * );
-static intgen_t do_get_device_class( drive_t * );
+static int do_end_write( drive_t *, off64_t * );
+static int do_rewind( drive_t * );
+static int do_erase( drive_t * );
+static int do_get_device_class( drive_t * );
 static void do_quit( drive_t * );
 
 
@@ -177,7 +187,7 @@ static drive_ops_t drive_ops = {
 /* strategy match - determines if this is the right strategy
  */
 /* ARGSUSED */
-static intgen_t
+static int
 ds_match( int argc, char *argv[], drive_t *drivep )
 {
 	bool_t isrmtpr;
@@ -185,7 +195,7 @@ ds_match( int argc, char *argv[], drive_t *drivep )
 
 	/* sanity checks
 	 */
-	ASSERT( ! ( sizeofmember( drive_context_t, dc_buf ) % PGSZ ));
+	assert( ! ( sizeofmember( drive_context_t, dc_buf ) % PGSZ ));
 
 	/* determine if this is an rmt file. if so, give a weak match:
 	 * might be an ordinary file accessed via the rmt protocol.
@@ -234,8 +244,8 @@ ds_instantiate( int argc, char *argv[], drive_t *drivep )
 	 */
 	contextp = ( drive_context_t * )memalign( PGSZ,
 						  sizeof( drive_context_t ));
-	ASSERT( contextp );
-	ASSERT( ( void * )contextp->dc_buf == ( void * )contextp );
+	assert( contextp );
+	assert( ( void * )contextp->dc_buf == ( void * )contextp );
 	memset( ( void * )contextp, 0, sizeof( *contextp ));
 
 	/* scan drive device pathname to see if remote tape
@@ -259,7 +269,7 @@ ds_instantiate( int argc, char *argv[], drive_t *drivep )
 		contextp->dc_fd = 0;
 #endif /* RESTORE */
 	} else if ( contextp->dc_isrmtpr ) {
-		intgen_t oflags;
+		int oflags;
 #ifdef DUMP
 		oflags = O_WRONLY | O_CREAT | O_TRUNC;
 #endif /* DUMP */
@@ -279,9 +289,9 @@ ds_instantiate( int argc, char *argv[], drive_t *drivep )
 			return BOOL_FALSE;
 		}
 	} else {
-		intgen_t oflags = 0;
+		int oflags = 0;
 		struct stat statbuf;
-		intgen_t rval;
+		int rval;
 		rval = stat( drivep->d_pathname, &statbuf );
 #ifdef DUMP
 		if ( rval ) {
@@ -413,17 +423,17 @@ do_sync( drive_t *drivep )
 /* drive op begin_read - prepare file for reading - main job is to
  * read the media hdr
  */
-static intgen_t
+static int
 do_begin_read( drive_t *drivep )
 {
 #ifdef DEBUG
-	intgen_t dcaps = drivep->d_capabilities;
+	int dcaps = drivep->d_capabilities;
 #endif
 	global_hdr_t *grhdrp = drivep->d_greadhdrp;
 	drive_hdr_t *drhdrp = drivep->d_readhdrp;
 	drive_context_t *contextp = ( drive_context_t * )drivep->d_contextp;
-	intgen_t nread;
-	intgen_t rval;
+	int nread;
+	int rval;
 	global_hdr_t		*tmphdr = (global_hdr_t	*)malloc(GLOBAL_HDR_SZ);
 	drive_hdr_t		*tmpdh = (drive_hdr_t *)tmphdr->gh_upper;
 	media_hdr_t		*tmpmh = (media_hdr_t *)tmpdh->dh_upper;
@@ -439,9 +449,9 @@ do_begin_read( drive_t *drivep )
 
 	/* verify protocol being followed
 	 */
-	ASSERT( dcaps & DRIVE_CAP_READ );
-	ASSERT( contextp->dc_fd >= 0 );
-	ASSERT( contextp->dc_mode == OM_NONE );
+	assert( dcaps & DRIVE_CAP_READ );
+	assert( contextp->dc_fd >= 0 );
+	assert( contextp->dc_mode == OM_NONE );
 
 	/* can only read one media file
 	 */
@@ -484,7 +494,7 @@ do_begin_read( drive_t *drivep )
 		free(tmphdr);
 		return rval;
 	}
-	ASSERT( ( size_t )nread == GLOBAL_HDR_SZ );
+	assert( ( size_t )nread == GLOBAL_HDR_SZ );
 	
 	mlog(MLOG_NITTY, "do_begin_read: global_hdr\n"
 	     "\tgh_magic %.100s\n"
@@ -573,7 +583,7 @@ static char *
 do_read( drive_t *drivep,
          size_t wantedcnt,
          size_t *actualcntp,
-         intgen_t *rvalp )
+         int *rvalp )
 {
 	drive_context_t *contextp = ( drive_context_t * )drivep->d_contextp;
 	size_t remainingcnt;
@@ -585,9 +595,9 @@ do_read( drive_t *drivep,
 
 	/* assert protocol
 	 */
-	ASSERT( contextp->dc_mode == OM_READ );
-	ASSERT( ! contextp->dc_ownedp );
-	ASSERT( wantedcnt > 0 );
+	assert( contextp->dc_mode == OM_READ );
+	assert( ! contextp->dc_ownedp );
+	assert( wantedcnt > 0 );
 
 	/* pre-initialize reference return
 	 */
@@ -595,7 +605,7 @@ do_read( drive_t *drivep,
 
 	/* count number of unread bytes in buffer
 	 */
-	ASSERT( contextp->dc_emptyp >= contextp->dc_nextp );
+	assert( contextp->dc_emptyp >= contextp->dc_nextp );
 	remainingcnt = ( size_t )( contextp->dc_emptyp - contextp->dc_nextp );
 
 	/* if no unread bytes in buffer, refill
@@ -628,7 +638,7 @@ do_read( drive_t *drivep,
 		/* record the ptrs to the first empty byte and the next
 		 * byte to be read
 		 */
-		ASSERT( nread <= BUFSZ );
+		assert( nread <= BUFSZ );
 		contextp->dc_emptyp = contextp->dc_buf + nread;
 		contextp->dc_nextp = contextp->dc_buf;
 
@@ -656,7 +666,7 @@ do_read( drive_t *drivep,
 	/* advance the next ptr to the next byte to be supplied
 	 */
 	contextp->dc_nextp += actualcnt;
-	ASSERT( contextp->dc_nextp <= contextp->dc_emptyp );
+	assert( contextp->dc_nextp <= contextp->dc_emptyp );
 
 	/* return the actual number of bytes supplied, and a ptr to the first
 	 */
@@ -681,17 +691,17 @@ do_return_read_buf( drive_t *drivep, char *retp, size_t retcnt )
 
 	/* verify protocol
 	 */
-	ASSERT( contextp->dc_mode == OM_READ );
-	ASSERT( contextp->dc_ownedp );
+	assert( contextp->dc_mode == OM_READ );
+	assert( contextp->dc_ownedp );
 
 	/* verify returning right buffer
 	 */
-	ASSERT( retp == contextp->dc_ownedp );
+	assert( retp == contextp->dc_ownedp );
 
 	/* verify all of buffer provided is being returned
 	 */
 	ownedcnt = ( size_t )( contextp->dc_nextp - contextp->dc_ownedp );
-	ASSERT( retcnt == ownedcnt );
+	assert( retcnt == ownedcnt );
 
 	/* indicate nothing now owned by caller
 	 */
@@ -713,8 +723,8 @@ do_get_mark( drive_t *drivep, drive_mark_t *markp )
 
 	/* assert protocol
 	 */
-	ASSERT( contextp->dc_mode == OM_READ );
-	ASSERT( ! contextp->dc_ownedp );
+	assert( contextp->dc_mode == OM_READ );
+	assert( ! contextp->dc_ownedp );
 
 	/* calculate the offset of the next byte to be supplied relative to
 	 * the beginning of the buffer and relative to the beginning of
@@ -728,7 +738,7 @@ do_get_mark( drive_t *drivep, drive_mark_t *markp )
 /* seek forward to the specified mark. the caller must not have already read
  * past that point.
  */
-static intgen_t
+static int
 do_seek_mark( drive_t *drivep, drive_mark_t *markp )
 {
 	drive_context_t *contextp = ( drive_context_t * )drivep->d_contextp;
@@ -736,18 +746,18 @@ do_seek_mark( drive_t *drivep, drive_mark_t *markp )
 	off64_t nextoff;
 	off64_t strmoff;
 	/* REFERENCED */
-	intgen_t nread;
+	int nread;
 	off64_t nreadneeded64;
-	intgen_t nreadneeded;
-	intgen_t rval;
+	int nreadneeded;
+	int rval;
 
 	mlog( MLOG_NITTY | MLOG_DRIVE,
 	      "drive_simple seek_mark( )\n" );
 
 	/* assert protocol
 	 */
-	ASSERT( contextp->dc_mode == OM_READ );
-	ASSERT( ! contextp->dc_ownedp );
+	assert( contextp->dc_mode == OM_READ );
+	assert( ! contextp->dc_ownedp );
 
 	/* calculate the current offset within the media file
 	 * of the next byte to be read
@@ -765,24 +775,26 @@ do_seek_mark( drive_t *drivep, drive_mark_t *markp )
 	/* use read_buf util func to eat up difference
 	 */
 	nreadneeded64 = mark - strmoff;
-	ASSERT( nreadneeded64 <= INTGENMAX );
-	nreadneeded = ( intgen_t )nreadneeded64;
-	nread = read_buf( 0,
-			  ( size_t )nreadneeded,
-			  ( void * )drivep,
-			  ( rfp_t )drivep->d_opsp->do_read,
-			  ( rrbfp_t )drivep->d_opsp->do_return_read_buf,
-			  &rval );
-	if  ( rval ) {
-		return rval;
+	while ( nreadneeded64 > 0 ) {
+		if ( nreadneeded64 > INTGENMAX )
+			nreadneeded = INTGENMAX;
+		else
+			nreadneeded = ( int )nreadneeded64;
+		nread = read_buf( 0, nreadneeded, drivep,
+				  ( rfp_t )drivep->d_opsp->do_read,
+				( rrbfp_t )drivep->d_opsp->do_return_read_buf,
+				  &rval );
+		if  ( rval ) {
+			return rval;
+		}
+		nreadneeded64 -= nread;
 	}
-	ASSERT( nread == nreadneeded );
 
 	/* verify we are on the mark
 	 */
 	nextoff = ( off64_t )( contextp->dc_nextp - contextp->dc_buf );
 	strmoff = contextp->dc_bufstroff + nextoff;
-	ASSERT( strmoff == mark );
+	assert( strmoff == mark );
 
 	return 0;
 }
@@ -791,24 +803,24 @@ do_seek_mark( drive_t *drivep, drive_mark_t *markp )
  * mark in the media file (recorded in the header). if the caller
  * has already read past that mark, blow up.
  */
-static intgen_t
+static int
 do_next_mark( drive_t *drivep )
 {
 #ifdef DEBUG
-	intgen_t dcaps = drivep->d_capabilities;
+	int dcaps = drivep->d_capabilities;
 #endif
 	drive_context_t *contextp = ( drive_context_t * )drivep->d_contextp;
 	drive_mark_t mark = contextp->dc_firstmark;
-	intgen_t rval;
+	int rval;
 
 	mlog( MLOG_NITTY | MLOG_DRIVE,
 	      "drive_simple next_mark( )\n" );
 
 	/* assert protocol
 	 */
-	ASSERT( dcaps & DRIVE_CAP_NEXTMARK );
-	ASSERT( contextp->dc_mode == OM_READ );
-	ASSERT( ! contextp->dc_ownedp );
+	assert( dcaps & DRIVE_CAP_NEXTMARK );
+	assert( contextp->dc_mode == OM_READ );
+	assert( ! contextp->dc_ownedp );
 
 	if ( ! mark ) {
 		return DRIVE_ERROR_EOF;
@@ -835,21 +847,21 @@ do_end_read( drive_t *drivep )
 
 	/* be sure we are following protocol
 	 */
-	ASSERT( contextp->dc_mode == OM_READ );
+	assert( contextp->dc_mode == OM_READ );
 	contextp->dc_mode = OM_NONE;
 
 	/* bump the file mark cnt
 	 */
 	contextp->dc_fmarkcnt++;
-	ASSERT( contextp->dc_fmarkcnt == 1 );
+	assert( contextp->dc_fmarkcnt == 1 );
 }
 
 /* begin_write - prepare file for writing
  */
-static intgen_t
+static int
 do_begin_write( drive_t *drivep )
 {
-	intgen_t dcaps = drivep->d_capabilities;
+	int dcaps = drivep->d_capabilities;
 	global_hdr_t *gwhdrp = drivep->d_gwritehdrp;
 	drive_hdr_t *dwhdrp = drivep->d_writehdrp;
 	drive_context_t *contextp = ( drive_context_t * )drivep->d_contextp;
@@ -869,12 +881,12 @@ do_begin_write( drive_t *drivep )
 
 	/* sanity checks
 	 */
-	ASSERT( dwhdrp->dh_strategyid == DRIVE_STRATEGY_SIMPLE );
+	assert( dwhdrp->dh_strategyid == DRIVE_STRATEGY_SIMPLE );
 
 	/* assert protocol
 	 */
-	ASSERT( contextp->dc_fd >= 0 );
-	ASSERT( contextp->dc_mode == OM_NONE );
+	assert( contextp->dc_fd >= 0 );
+	assert( contextp->dc_mode == OM_NONE );
 
 	/* only one media file may be written
 	 */
@@ -916,7 +928,7 @@ do_begin_write( drive_t *drivep )
 	contextp->dc_mode = OM_WRITE;
 
 	tmphdr = (global_hdr_t *)malloc(GLOBAL_HDR_SZ);
-	ASSERT(tmphdr);
+	assert(tmphdr);
 	memset(tmphdr, 0, GLOBAL_HDR_SZ);
 	tmpdh = (drive_hdr_t *)tmphdr->gh_upper;
 	tmpmh = (media_hdr_t *)tmpdh->dh_upper;
@@ -995,9 +1007,9 @@ do_set_mark( drive_t *drivep,
 
 	/* assert protocol
 	 */
-	ASSERT( contextp->dc_mode == OM_WRITE );
-	ASSERT( ! contextp->dc_ownedp );
-	ASSERT( contextp->dc_nextp );
+	assert( contextp->dc_mode == OM_WRITE );
+	assert( ! contextp->dc_ownedp );
+	assert( contextp->dc_nextp );
 
 	/* calculate the mark offset
 	 */
@@ -1047,11 +1059,11 @@ do_set_mark( drive_t *drivep,
 			drive_hdr_t		*dwhdrp = drivep->d_writehdrp;
 			off64_t			newoff;
 			/* REFERENCED */
-			intgen_t		nwritten;
+			int		nwritten;
 
 			/* assert the header has been flushed
 			 */
-			ASSERT( contextp->dc_bufstroff >= sizeof( *gwhdrp ));
+			assert( contextp->dc_bufstroff >= sizeof( *gwhdrp ));
 
 			/* record mark in hdr
 			 */
@@ -1080,7 +1092,7 @@ do_set_mark( drive_t *drivep,
 				content_hdr_t		*ch = (content_hdr_t *)mh->mh_upper;
 				content_inode_hdr_t	*cih = (content_inode_hdr_t *)ch->ch_specific;
 
-				ASSERT( newoff == 0 );
+				assert( newoff == 0 );
 
 				/* write and seek back to current offset
 				 */
@@ -1090,7 +1102,7 @@ do_set_mark( drive_t *drivep,
 				     "(on media)\n" );
 
 				tmphdr = (global_hdr_t *)malloc(GLOBAL_HDR_SZ);
-				ASSERT(tmphdr);
+				assert(tmphdr);
 				tmpdh = (drive_hdr_t *)tmphdr->gh_upper;
 				tmpmh = (media_hdr_t *)tmpdh->dh_upper;
 				tmpch = (content_hdr_t *)tmpmh->mh_upper;
@@ -1127,13 +1139,13 @@ do_set_mark( drive_t *drivep,
 				nwritten = write( contextp->dc_fd,
 						  tmphdr,
 						  sizeof( *tmphdr ));
-				ASSERT( ( size_t )nwritten == sizeof( *tmphdr ));
+				assert( ( size_t )nwritten == sizeof( *tmphdr ));
 				free(tmphdr);
 
 				newoff = lseek64( contextp->dc_fd,
 						  contextp->dc_bufstroff,
 						  SEEK_SET );
-				ASSERT( newoff == contextp->dc_bufstroff );
+				assert( newoff == contextp->dc_bufstroff );
 			}
 		}
 	}
@@ -1142,7 +1154,7 @@ do_set_mark( drive_t *drivep,
 	 * otherwise put the mark record on the tail of the queue.
 	 */
 	if ( contextp->dc_nextp == contextp->dc_buf ) {
-		ASSERT( drivep->d_markrecheadp == 0 );
+		assert( drivep->d_markrecheadp == 0 );
 		( * cbfuncp )( cbcontextp, markrecp, BOOL_TRUE );
 		return;
 	} else {
@@ -1153,7 +1165,7 @@ do_set_mark( drive_t *drivep,
 			drivep->d_markrecheadp = markrecp;
 			drivep->d_markrectailp = markrecp;
 		} else {
-			ASSERT( drivep->d_markrectailp );
+			assert( drivep->d_markrectailp );
 			drivep->d_markrectailp->dm_nextp = markrecp;
 			drivep->d_markrectailp = markrecp;
 		}
@@ -1178,11 +1190,11 @@ do_get_write_buf( drive_t *drivep, size_t wanted_bufsz, size_t *actual_bufszp )
 
 	/* assert protocol
 	 */
-	ASSERT( contextp->dc_mode == OM_WRITE );
-	ASSERT( ! contextp->dc_ownedp );
-	ASSERT( contextp->dc_nextp );
-	ASSERT( contextp->dc_nextp < contextp->dc_emptyp );
-	ASSERT( contextp->dc_ownedsz == 0 );
+	assert( contextp->dc_mode == OM_WRITE );
+	assert( ! contextp->dc_ownedp );
+	assert( contextp->dc_nextp );
+	assert( contextp->dc_nextp < contextp->dc_emptyp );
+	assert( contextp->dc_ownedsz == 0 );
 
 	/* calculate how much buffer remains
 	 */
@@ -1211,7 +1223,7 @@ do_get_write_buf( drive_t *drivep, size_t wanted_bufsz, size_t *actual_bufszp )
  * caller.
  */
 /*ARGSUSED*/
-static intgen_t
+static int
 do_write( drive_t *drivep, char *bufp, size_t writesz )
 {
 	drive_context_t *contextp = ( drive_context_t * )drivep->d_contextp;
@@ -1235,18 +1247,18 @@ do_write( drive_t *drivep, char *bufp, size_t writesz )
 
 	/* assert protocol
 	 */
-	ASSERT( contextp->dc_mode == OM_WRITE );
-	ASSERT( contextp->dc_ownedp );
-	ASSERT( bufp == contextp->dc_ownedp );
-	ASSERT( ! contextp->dc_nextp );
-	ASSERT( contextp->dc_ownedp < contextp->dc_emptyp );
-	ASSERT( writesz == contextp->dc_ownedsz );
+	assert( contextp->dc_mode == OM_WRITE );
+	assert( contextp->dc_ownedp );
+	assert( bufp == contextp->dc_ownedp );
+	assert( ! contextp->dc_nextp );
+	assert( contextp->dc_ownedp < contextp->dc_emptyp );
+	assert( writesz == contextp->dc_ownedsz );
 
 	/* calculate next portion of buffer available for get_write_buf,
 	 * and indicate no portion is owned.
 	 */
 	contextp->dc_nextp = contextp->dc_ownedp + writesz;
-	ASSERT( contextp->dc_nextp <= contextp->dc_emptyp );
+	assert( contextp->dc_nextp <= contextp->dc_emptyp );
 	contextp->dc_ownedp = 0;
 	contextp->dc_ownedsz = 0;
 
@@ -1257,7 +1269,7 @@ do_write( drive_t *drivep, char *bufp, size_t writesz )
 	/* if buffer is full, flush it
 	 */
 	if ( contextp->dc_nextp == contextp->dc_emptyp ) {
-		intgen_t nwritten;
+		int nwritten;
 
 		mlog( MLOG_DEBUG | MLOG_DRIVE,
 		      "flushing write buf addr 0x%x size 0x%x\n",
@@ -1294,7 +1306,7 @@ static size_t
 do_get_align_cnt( drive_t *drivep )
 {
 	drive_context_t *contextp = ( drive_context_t * )drivep->d_contextp;
-	__psint_t next_alignment_off;
+	intptr_t next_alignment_off;
 	char *next_alignment_point;
 
 	mlog( MLOG_NITTY | MLOG_DRIVE,
@@ -1302,20 +1314,20 @@ do_get_align_cnt( drive_t *drivep )
 
 	/* assert protocol
 	 */
-	ASSERT( contextp->dc_mode == OM_WRITE );
-	ASSERT( ! contextp->dc_ownedp );
-	ASSERT( contextp->dc_nextp );
-	ASSERT( contextp->dc_nextp < contextp->dc_emptyp );
+	assert( contextp->dc_mode == OM_WRITE );
+	assert( ! contextp->dc_ownedp );
+	assert( contextp->dc_nextp );
+	assert( contextp->dc_nextp < contextp->dc_emptyp );
 
 	/* calculate the next alignment point at or beyond the current nextp.
 	 * the following algorithm works because dc_buf is page-aligned and
 	 * a multiple of PGSZ.
 	 */
-	next_alignment_off = ( __psint_t )contextp->dc_nextp;
+	next_alignment_off = ( intptr_t )contextp->dc_nextp;
 	next_alignment_off +=  PGMASK;
 	next_alignment_off &= ~PGMASK;
 	next_alignment_point = ( char * )next_alignment_off;
-	ASSERT( next_alignment_point <= contextp->dc_emptyp );
+	assert( next_alignment_point <= contextp->dc_emptyp );
 
 	/* return the number of bytes to the next alignment point
 	 */
@@ -1325,7 +1337,7 @@ do_get_align_cnt( drive_t *drivep )
 /* end_write - flush any buffered data, and return by reference how many
  * bytes were committed.
  */
-static intgen_t
+static int
 do_end_write( drive_t *drivep, off64_t *ncommittedp )
 {
 	drive_context_t *contextp = ( drive_context_t * )drivep->d_contextp;
@@ -1336,14 +1348,14 @@ do_end_write( drive_t *drivep, off64_t *ncommittedp )
 
 	/* assert protocol
 	 */
-	ASSERT( contextp->dc_mode == OM_WRITE );
-	ASSERT( ! contextp->dc_ownedp );
-	ASSERT( contextp->dc_nextp );
-	ASSERT( contextp->dc_nextp < contextp->dc_emptyp );
+	assert( contextp->dc_mode == OM_WRITE );
+	assert( ! contextp->dc_ownedp );
+	assert( contextp->dc_nextp );
+	assert( contextp->dc_nextp < contextp->dc_emptyp );
 
 	/* calculate length of un-written portion of buffer
 	 */
-	ASSERT( contextp->dc_nextp >= contextp->dc_buf );
+	assert( contextp->dc_nextp >= contextp->dc_buf );
 	remaining_bufsz = ( size_t )( contextp->dc_nextp - contextp->dc_buf );
 
 	if ( remaining_bufsz ) {
@@ -1385,7 +1397,7 @@ do_end_write( drive_t *drivep, off64_t *ncommittedp )
 	/* bump the file mark cnt
 	 */
 	contextp->dc_fmarkcnt++;
-	ASSERT( contextp->dc_fmarkcnt == 1 );
+	assert( contextp->dc_fmarkcnt == 1 );
 
 	*ncommittedp = contextp->dc_bufstroff;
 	contextp->dc_mode = OM_NONE;
@@ -1394,11 +1406,11 @@ do_end_write( drive_t *drivep, off64_t *ncommittedp )
 
 /* rewind - return the current file offset to the beginning
  */
-intgen_t
+int
 do_rewind( drive_t *drivep )
 {
 #ifdef DEBUG
-	intgen_t dcaps = drivep->d_capabilities;
+	int dcaps = drivep->d_capabilities;
 #endif
 	drive_context_t *contextp = ( drive_context_t * )drivep->d_contextp;
 	off64_t newoff;
@@ -1408,15 +1420,15 @@ do_rewind( drive_t *drivep )
 
 	/* assert protocol
 	 */
-	ASSERT( contextp->dc_mode == OM_NONE );
-	ASSERT( dcaps & DRIVE_CAP_REWIND );
-	ASSERT( contextp->dc_fd >= 0 );
+	assert( contextp->dc_mode == OM_NONE );
+	assert( dcaps & DRIVE_CAP_REWIND );
+	assert( contextp->dc_fd >= 0 );
 
 	/* seek to beginning of file
 	 */
 	newoff = lseek64( contextp->dc_fd, ( off64_t )0, SEEK_SET );
 	if ( newoff ) {
-		ASSERT( newoff < 0 );
+		assert( newoff < 0 );
 		mlog( MLOG_NORMAL | MLOG_WARNING | MLOG_DRIVE,
 		      _("could not rewind %s: %s\n"),
 		      drivep->d_pathname,
@@ -1429,30 +1441,30 @@ do_rewind( drive_t *drivep )
 
 /* erase - truncate to zero length
  */
-intgen_t
+int
 do_erase( drive_t *drivep )
 {
 #ifdef DEBUG
-	intgen_t dcaps = drivep->d_capabilities;
+	int dcaps = drivep->d_capabilities;
 #endif
 	drive_context_t *contextp = ( drive_context_t * )drivep->d_contextp;
 	off64_t newoff;
-	intgen_t rval;
+	int rval;
 
 	mlog( MLOG_NITTY | MLOG_DRIVE,
 	      "drive_simple erase( )\n" );
 
 	/* assert protocol
 	 */
-	ASSERT( contextp->dc_mode == OM_NONE );
-	ASSERT( dcaps & DRIVE_CAP_ERASE );
-	ASSERT( contextp->dc_fd >= 0 );
+	assert( contextp->dc_mode == OM_NONE );
+	assert( dcaps & DRIVE_CAP_ERASE );
+	assert( contextp->dc_fd >= 0 );
 
 	/* seek to beginning of file
 	 */
 	newoff = lseek64( contextp->dc_fd, ( off64_t )0, SEEK_SET );
 	if ( newoff ) {
-		ASSERT( newoff < 0 );
+		assert( newoff < 0 );
 		mlog( MLOG_NORMAL | MLOG_WARNING | MLOG_DRIVE,
 		      _("could not rewind %s in prep for erase: %s\n"),
 		      drivep->d_pathname,
@@ -1479,12 +1491,12 @@ do_erase( drive_t *drivep )
 /* get_media_class()
  */
 /* ARGSUSED */
-static intgen_t 
+static int 
 do_get_device_class( drive_t *drivep )
 {
 	mlog( MLOG_NITTY | MLOG_DRIVE,
 	      "drive_simple get_device_class( )\n" );
-	ASSERT( drivep );
+	assert( drivep );
 	return DEVICE_NONREMOVABLE;
 }
 
@@ -1498,8 +1510,8 @@ do_quit( drive_t *drivep )
 
 	/* assert protocol
 	 */
-	ASSERT( contextp->dc_mode == OM_NONE );
-	ASSERT( contextp );
+	assert( contextp->dc_mode == OM_NONE );
+	assert( contextp );
 
 	/* close file
 	 */

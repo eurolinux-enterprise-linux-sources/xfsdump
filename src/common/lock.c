@@ -15,9 +15,10 @@
  * along with this program; if not, write the Free Software Foundation,
  * Inc.,  51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
+#include <assert.h>
+#include <sys/types.h>
 
-#include <xfs/xfs.h>
-#include <xfs/jdm.h>
+#include "config.h"
 
 #include "types.h"
 #include "qlock.h"
@@ -30,7 +31,7 @@ lock_init( void )
 {
 	/* initialization sanity checks
 	 */
-	ASSERT( lock_qlockh == QLOCKH_NULL );
+	assert( lock_qlockh == QLOCKH_NULL );
 
 	/* allocate a qlock
 	 */

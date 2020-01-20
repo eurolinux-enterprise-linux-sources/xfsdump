@@ -43,15 +43,15 @@
 struct global_hdr {
 	char gh_magic[ GLOBAL_HDR_MAGIC_SZ ];		/*   8    8 */
 		/* unique signature of xfsdump */
-	u_int32_t gh_version;				/*   4    c */
+	uint32_t gh_version;				/*   4    c */
 		/* header version */
-	u_int32_t gh_checksum;				/*   4   10 */
+	uint32_t gh_checksum;				/*   4   10 */
 		/* 32-bit unsigned additive inverse of entire header */
 	time32_t gh_timestamp;				/*   4   14 */
 		/* time32_t of dump */
 	char gh_pad1[ 4 ];				/*   4   18 */
 		/* alignment */
-	u_int64_t gh_ipaddr;				/*   8   20 */
+	uint64_t gh_ipaddr;				/*   8   20 */
 		/* from gethostid(2), room for expansion */
 	uuid_t gh_dumpid;				/*  10   30 */
 		/* ID of dump session	 */
@@ -73,7 +73,7 @@ typedef struct global_hdr global_hdr_t;
 /* used by main( ) to allocate and populate a global header template.
  * drive managers will copy this into the write header.
  */
-extern global_hdr_t * global_hdr_alloc( intgen_t argc, char *argv[ ] );
+extern global_hdr_t * global_hdr_alloc( int argc, char *argv[ ] );
 
 
 /* used by main( ) to free the global header template after drive ini.
@@ -97,7 +97,7 @@ extern bool_t global_hdr_checksum_check( global_hdr_t *hdrp );
  * else return BOOL_FALSE
  */
 
-extern bool_t global_version_check( u_int32_t version );
+extern bool_t global_version_check( uint32_t version );
 
 
 #endif /* GLOBAL_H */

@@ -16,10 +16,9 @@
  * Inc.,  51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
-#include <xfs/xfs.h>
-#include <xfs/jdm.h>
 #include "config.h"
 
+#include <unistd.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <time.h>
@@ -27,6 +26,12 @@
 #include <fcntl.h>
 #include <mntent.h>
 #include <sys/ioctl.h>
+#include <assert.h>
+#include <string.h>
+#include <uuid/uuid.h>
+#include <xfs/xfs.h>
+
+#include "config.h"
 
 #include "types.h"
 #include "mlog.h"
@@ -104,12 +109,12 @@ static fs_tab_ent_t *fs_tab_lookup_mnt( char * );
 /* ARGSUSED */
 bool_t
 fs_info( char *typb,		/* out */
-	 intgen_t typbz,
+	 int typbz,
 	 char *typd,
 	 char *blkb,		/* out */
-	 intgen_t blkbz,
+	 int blkbz,
 	 char *mntb,		/* out */
-	 intgen_t mntbz,
+	 int mntbz,
 	 uuid_t *idb,		/* out */
 	 char *usrs )		/* in */
 {
@@ -127,11 +132,11 @@ fs_info( char *typb,		/* out */
 	if ( canstat && ( statb.st_mode & S_IFMT ) == S_IFBLK ) {
 		if ( ( tep = fs_tab_lookup_blk( usrs )) != 0 ) {
 			blks = tep->fte_blks;
-			ASSERT( strlen( blks ) < ( size_t )blkbz );
+			assert( strlen( blks ) < ( size_t )blkbz );
 			strcpy( blkb, blks );
 			mnts = tep->fte_mnts;
 			if ( mnts ) {
-				ASSERT( strlen( mnts ) < ( size_t )mntbz );
+				assert( strlen( mnts ) < ( size_t )mntbz );
 				strcpy( mntb, mnts );
 			} else {
 				mntb[ 0 ] = 0;
@@ -139,7 +144,7 @@ fs_info( char *typb,		/* out */
 			if ( ( typs = tep->fte_typs ) == 0 ) {
 				typs = typd;
 			}
-			ASSERT( strlen( typs ) < ( size_t )typbz );
+			assert( strlen( typs ) < ( size_t )typbz );
 			strcpy( typb, typs );
 			ok = BOOL_TRUE;
 		} else {
@@ -147,13 +152,13 @@ fs_info( char *typb,		/* out */
 		}
 	} else if ( ( tep = fs_tab_lookup_mnt( usrs )) != 0 ) {
 		blks = tep->fte_blks;
-		ASSERT( strlen( blks ) < ( size_t )blkbz );
+		assert( strlen( blks ) < ( size_t )blkbz );
 		strcpy( blkb, blks );
 		mnts = tep->fte_mnts;
-		ASSERT( strlen( mnts ) < ( size_t )mntbz );
+		assert( strlen( mnts ) < ( size_t )mntbz );
 		strcpy( mntb, mnts );
 		typs = tep->fte_typs;
-		ASSERT( strlen( typs ) < ( size_t )typbz );
+		assert( strlen( typs ) < ( size_t )typbz );
 		strcpy( typb, typs );
 		ok = BOOL_TRUE;
 	} else {
@@ -161,10 +166,10 @@ fs_info( char *typb,		/* out */
 	}
 
 	fs_tab_free( );
-	ASSERT( ok != BOOL_UNKNOWN );
+	assert( ok != BOOL_UNKNOWN );
 
 	if ( ok == BOOL_TRUE ) {
-		intgen_t rval = fs_getid( mntb, idb );
+		int rval = fs_getid( mntb, idb );
 		if ( rval ) {
 			mlog( MLOG_NORMAL,
 			      _("unable to determine uuid of fs mounted at %s: "
@@ -196,7 +201,7 @@ fs_mounted( char *typs, char *chrs, char *mnts, uuid_t *idp )
 	return strlen( mnts ) > 0 ? BOOL_TRUE : BOOL_FALSE;
 }
 
-intgen_t
+int
 fs_getid( char *mnts, uuid_t *idb )
 {
 	xfs_fsop_geom_v1_t geo;
@@ -222,7 +227,7 @@ size_t
 fs_getinocnt( char *mnts )
 {
 	struct statvfs vfsstat;
-	intgen_t rval;
+	int rval;
 
 	rval = statvfs( mnts, &vfsstat );
 	if ( rval ) {
@@ -281,11 +286,11 @@ fs_tab_ent_build( struct mntent *mntentp )
 	char *cp;
 
 	tep = ( fs_tab_ent_t * )calloc( 1, sizeof( fs_tab_ent_t ));
-	ASSERT( tep );
+	assert( tep );
 
 	if ( mntentp->mnt_dir ) {
 		cp = calloc( 1, strlen( mntentp->mnt_dir ) + 1 );
-		ASSERT( cp );
+		assert( cp );
 		( void )strcpy( cp, mntentp->mnt_dir );
 		tep->fte_mnts = cp;
 	} else {
@@ -294,7 +299,7 @@ fs_tab_ent_build( struct mntent *mntentp )
 
 	if ( mntentp->mnt_type ) {
 		cp = calloc( 1, strlen( mntentp->mnt_type ) + 1 );
-		ASSERT( cp );
+		assert( cp );
 		( void )strcpy( cp, mntentp->mnt_type );
 		tep->fte_typs = cp;
 	} else {
@@ -303,7 +308,7 @@ fs_tab_ent_build( struct mntent *mntentp )
 
 	if ( mntentp->mnt_fsname ) {
 		cp = calloc( 1, strlen( mntentp->mnt_fsname ) + 1 );
-		ASSERT( cp );
+		assert( cp );
 		( void )strcpy( cp, mntentp->mnt_fsname );
 		tep->fte_blks = cp;
 	} else {

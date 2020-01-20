@@ -19,12 +19,18 @@
 #include <xfs/xfs.h>
 #include <xfs/jdm.h>
 
+#include <stdlib.h>
 #include <time.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/dir.h>
+#include <assert.h>
+#include <string.h>
+
+#include "config.h"
+
 #include "types.h"
 #include "mlog.h"
 #include "inv_priv.h"
@@ -37,13 +43,13 @@
 /* given a time, find the invindex that has the time-period it can fit  */
 /* into.                                                                */
 /*----------------------------------------------------------------------*/
-u_int
+uint
 idx_insert_newentry( int fd, /* kept locked EX by caller */
 		     int *stobjfd, /* OUT */
 		     invt_entry_t *iarr, invt_counter_t *icnt,
 		     time32_t tm )
 {
-	u_int i;
+	uint i;
 	inv_oflag_t forwhat = INV_SEARCH_N_MOD;
 /*	invt_entry_t ient;
 	ient.ie_timeperiod.tp_start = ient.ie_timeperiod.tp_end = tm; */
@@ -119,7 +125,7 @@ idx_insert_newentry( int fd, /* kept locked EX by caller */
 				   We choose the former. */
 				
 				/* the timeperiods had better not overlap */
-				ASSERT(( tm > iarr[i].ie_timeperiod.tp_end ) &&
+				assert(( tm > iarr[i].ie_timeperiod.tp_end ) &&
 				       ( tm < iarr[i+1].ie_timeperiod.tp_start ));
 
 				/* shift everything from (i+1) onwards by 
@@ -134,7 +140,7 @@ idx_insert_newentry( int fd, /* kept locked EX by caller */
 	}		
 
 	/* We couldnt find anything that fits */
-	ASSERT( 0 );	/* We can't get here ! */
+	assert( 0 );	/* We can't get here ! */
 	return -1;
 
 	
@@ -147,7 +153,7 @@ idx_insert_newentry( int fd, /* kept locked EX by caller */
 /*                                                                      */
 /*----------------------------------------------------------------------*/
 
-intgen_t
+int
 idx_put_newentry( 
 	invt_idxinfo_t *idx, 
 	invt_entry_t *ient )
@@ -156,7 +162,7 @@ idx_put_newentry(
 	int stobjfd;
 	
 	int fd = idx->invfd; 	/* kept locked EX by caller */
-	u_int index = idx->index + 1;
+	uint index = idx->index + 1;
 	invt_entry_t *iarr = idx->iarr;
 	invt_counter_t *icnt = idx->icnt;
 
@@ -255,7 +261,7 @@ idx_create( char *fname, inv_oflag_t forwhat )
 
 	/* This is not to be called when the user wants to open
 	   the db for SEARCH_ONLY. */
-	ASSERT( forwhat != INV_SEARCH_ONLY );
+	assert( forwhat != INV_SEARCH_ONLY );
 
 	if ((fd = open ( fname , INV_OFLAG(forwhat) | O_CREAT, S_IRUSR|S_IWUSR ) ) < 0 ) {
 		INV_PERROR ( fname );
@@ -285,7 +291,7 @@ idx_create( char *fname, inv_oflag_t forwhat )
 /*                                                                      */
 /*                                                                      */
 /*----------------------------------------------------------------------*/
-intgen_t
+int
 idx_recons_time( time32_t tm, invt_idxinfo_t *idx )
 {
 	invt_timeperiod_t *tp = &idx->iarr[idx->index].ie_timeperiod;
@@ -310,7 +316,7 @@ idx_recons_time( time32_t tm, invt_idxinfo_t *idx )
 /*                                                                      */
 /*----------------------------------------------------------------------*/
 
-intgen_t
+int
 idx_put_sesstime( inv_sestoken_t tok, bool_t whichtime)
 {
 	int rval;
@@ -335,8 +341,8 @@ idx_put_sesstime( inv_sestoken_t tok, bool_t whichtime)
 			      ent.ie_timeperiod.tp_start,
 			      ent.ie_timeperiod.tp_end );
 #endif
-	rval = PUT_REC_NOLOCK_SEEKCUR( fd, &ent, sizeof( invt_entry_t ),
-				      -(off64_t)(sizeof( invt_entry_t )));
+	rval = PUT_REC_NOLOCK(fd, &ent, sizeof(invt_entry_t),
+			      tok->sd_invtok->d_invindex_off);
 	
 #ifdef INVT_DEBUG
 	{
@@ -350,7 +356,7 @@ idx_put_sesstime( inv_sestoken_t tok, bool_t whichtime)
 				sizeof( invt_counter_t ))) < 0 ) {
 			return -1;		 
 		}
-		idx_DEBUG_printinvindices( iarr, (u_int) nindices );
+		idx_DEBUG_printinvindices( iarr, (uint) nindices );
 		free( iarr );
 		free( icnt );
 	}
@@ -374,7 +380,7 @@ idx_put_sesstime( inv_sestoken_t tok, bool_t whichtime)
 /*                                                                      */
 /*----------------------------------------------------------------------*/
 
-intgen_t
+int
 idx_create_entry(  
 	inv_idbtoken_t *tok, 
 	int invfd, 	/* kept locked EX  by caller */
@@ -477,8 +483,8 @@ idx_get_stobj( int invfd, inv_oflag_t forwhat, int *index )
 		return -1;
 	/* at this point we know that there should be at least one invindex
 	   entry present */
-	ASSERT ( ent != NULL );	
-	ASSERT ( ent->ie_filename );
+	assert ( ent != NULL );	
+	assert ( ent->ie_filename );
 
 	fd = open( ent->ie_filename, INV_OFLAG(forwhat) );
 	if ( fd < 0 )
@@ -489,11 +495,11 @@ idx_get_stobj( int invfd, inv_oflag_t forwhat, int *index )
 }
 
 
-intgen_t
-idx_DEBUG_printinvindices( invt_entry_t *iarr, u_int num )
+int
+idx_DEBUG_printinvindices( invt_entry_t *iarr, uint num )
 {
-	u_int i;
-	u_int k;
+	uint i;
+	uint k;
 
 	char s[9];
 	printf( "\n ==================================\n"
@@ -514,7 +520,7 @@ idx_DEBUG_printinvindices( invt_entry_t *iarr, u_int num )
 	
 }
 
-intgen_t
+int
 idx_DEBUG_print ( int fd )
 {
 	int nindices;
@@ -527,7 +533,7 @@ idx_DEBUG_print ( int fd )
 				         sizeof( invt_counter_t ))) < 0 ) {
 		return -1;		 
 	}
-	idx_DEBUG_printinvindices( iarr, (u_int) nindices );
+	idx_DEBUG_printinvindices( iarr, (uint) nindices );
 	free( iarr );
 	free( icnt );
 
@@ -536,8 +542,8 @@ idx_DEBUG_print ( int fd )
 
 
 
-intgen_t
-DEBUG_displayallsessions( int fd, invt_seshdr_t *hdr, u_int ref,
+int
+DEBUG_displayallsessions( int fd, invt_seshdr_t *hdr, uint ref,
 			  invt_pr_ctx_t *prctx)
 {
 	inv_session_t *ses;

@@ -16,10 +16,11 @@
  * Inc.,  51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
-#include <xfs/xfs.h>
-#include <xfs/jdm.h>
-
 #include <pthread.h>
+#include <assert.h>
+#include <string.h>
+
+#include "config.h"
 
 #include "types.h"
 #include "exit.h"
@@ -32,7 +33,7 @@
 struct spm {
 	stream_state_t	s_state;
 	pthread_t	s_tid;
-	intgen_t	s_ix;
+	int	s_ix;
 	int		s_exit_code;
 	rv_t		s_exit_return;
 	rv_t		s_exit_hint;
@@ -60,12 +61,12 @@ stream_init( void )
  */
 
 void
-stream_register( pthread_t tid, intgen_t streamix )
+stream_register( pthread_t tid, int streamix )
 {
 	spm_t *p = spm;
 	spm_t *ep = spm + N(spm);
 
-	ASSERT( streamix < STREAM_SIMMAX );
+	assert( streamix < STREAM_SIMMAX );
 
 	lock();
 	for ( ; p < ep ; p++ ) {
@@ -75,7 +76,7 @@ stream_register( pthread_t tid, intgen_t streamix )
 		}
 	}
 	unlock();
-	ASSERT( p < ep );
+	assert( p < ep );
 
 	if ( p >= ep ) return;
 
@@ -98,7 +99,7 @@ stream_dead( pthread_t tid )
 			p->s_state = S_ZOMBIE;
 			break;
 		}
-	ASSERT( p < ep );
+	assert( p < ep );
 }
 
 void
@@ -116,7 +117,7 @@ stream_free( pthread_t tid )
 		}
 	}
 	unlock();
-	ASSERT( p < ep );
+	assert( p < ep );
 }
 
 int
@@ -126,7 +127,7 @@ stream_find_all( stream_state_t states[], int nstates,
 	int i, count = 0;
 	spm_t *p = spm;
 	spm_t *ep = spm + N(spm);
-	ASSERT(nstates > 0 && ntids > 0);
+	assert(nstates > 0 && ntids > 0);
 
 	if (!initialized)
 		return 0;
@@ -150,7 +151,7 @@ stream_find( pthread_t tid, stream_state_t s[], int nstates )
 	spm_t *p = spm;
 	spm_t *ep = spm + N(spm);
 
-	ASSERT(nstates > 0);
+	assert(nstates > 0);
 
 	/* note we don't lock the stream array in this function */
 	for ( ; p < ep ; p++ )
@@ -183,12 +184,12 @@ stream_find( pthread_t tid, stream_state_t s[], int nstates )
  * another lock. So no locking is done in this function.
  */
 
-intgen_t
+int
 stream_getix( pthread_t tid )
 {
 	stream_state_t states[] = { S_RUNNING };
 	spm_t *p;
-	intgen_t ix;
+	int ix;
 	p = stream_find( tid, states, N(states) );
 	ix = p ? p->s_ix : -1;
 	return ix;
@@ -242,7 +243,7 @@ stream_get_exit_status( pthread_t tid,
 			stream_state_t states[],
 			int nstates,
 			stream_state_t *state,
-			intgen_t *ix,
+			int *ix,
 			int *exit_code,
 			rv_t *exit_return,
 			rv_t *exit_hint)
@@ -275,7 +276,7 @@ stream_cnt( void )
 	size_t ixcnt;
 	size_t bitix;
 
-	ASSERT( sizeof( ixmap ) * NBBY >= STREAM_SIMMAX );
+	assert( sizeof( ixmap ) * NBBY >= STREAM_SIMMAX );
 	
 	lock();
 	for ( ; p < ep ; p++ ) {

@@ -16,15 +16,20 @@
  * Inc.,  51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
-#include <xfs/xfs.h>
-#include <xfs/jdm.h>
-
+#include <unistd.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <errno.h>
+#include <assert.h>
+#include <string.h>
+#include <uuid/uuid.h>
+#include <xfs/xfs.h>
+#include <xfs/jdm.h> /* only for util.h include */
+
+#include "config.h"
 
 #include "types.h"
-#include "util.h"
+#include "util.h" /* only for strncpyterm */
 #include "mlog.h"
 #include "dlog.h"
 #include "global.h"
@@ -53,7 +58,7 @@ static char * prompt_label( char *bufp, size_t bufsz );
 /* definition of locally defined global functions ****************************/
 
 global_hdr_t *
-global_hdr_alloc( intgen_t argc, char *argv[ ] )
+global_hdr_alloc( int argc, char *argv[ ] )
 {
 	global_hdr_t *ghdrp;
 	int c;
@@ -63,17 +68,17 @@ global_hdr_alloc( intgen_t argc, char *argv[ ] )
 	struct stat64 statb;
 #endif /* DUMP */
 
-	intgen_t rval;
+	int rval;
 
 	/* sanity checks
 	 */
-	ASSERT( sizeof( time32_t ) == GLOBAL_HDR_TIME_SZ );
-	ASSERT( sizeof( uuid_t ) == GLOBAL_HDR_UUID_SZ );
+	assert( sizeof( time32_t ) == GLOBAL_HDR_TIME_SZ );
+	assert( sizeof( uuid_t ) == GLOBAL_HDR_UUID_SZ );
 
 	/* allocate a global hdr
 	 */
 	ghdrp = ( global_hdr_t * )calloc( 1, sizeof( global_hdr_t ));
-	ASSERT( ghdrp );
+	assert( ghdrp );
 
 	/* fill in the magic number
 	 */
@@ -91,7 +96,7 @@ global_hdr_alloc( intgen_t argc, char *argv[ ] )
 
 	/* fill in the host id: typecast to fit into a 64 bit field
 	 */
-	ghdrp->gh_ipaddr = ( u_int64_t )( unsigned long )gethostid( );
+	ghdrp->gh_ipaddr = ( uint64_t )( unsigned long )gethostid( );
 
 #ifdef DUMP
 	uuid_generate( ghdrp->gh_dumpid );
@@ -238,10 +243,10 @@ global_hdr_free( global_hdr_t *ghdrp )
 void
 global_hdr_checksum_set( global_hdr_t *hdrp )
 {
-	u_int32_t *beginp = ( u_int32_t * )&hdrp[ 0 ];
-	u_int32_t *endp = ( u_int32_t * )&hdrp[ 1 ];
-	u_int32_t *p;
-	u_int32_t accum;
+	uint32_t *beginp = ( uint32_t * )&hdrp[ 0 ];
+	uint32_t *endp = ( uint32_t * )&hdrp[ 1 ];
+	uint32_t *p;
+	uint32_t accum;
 
 	hdrp->gh_checksum = 0;
 	accum = 0;
@@ -258,10 +263,10 @@ global_hdr_checksum_set( global_hdr_t *hdrp )
 bool_t
 global_hdr_checksum_check( global_hdr_t *hdrp )
 {
-	u_int32_t *beginp = ( u_int32_t * )&hdrp[ 0 ];
-	u_int32_t *endp = ( u_int32_t * )&hdrp[ 1 ];
-	u_int32_t *p;
-	u_int32_t accum;
+	uint32_t *beginp = ( uint32_t * )&hdrp[ 0 ];
+	uint32_t *endp = ( uint32_t * )&hdrp[ 1 ];
+	uint32_t *p;
+	uint32_t accum;
 
 	accum = 0;
 	for ( p = beginp ; p < endp ; p++ ) {
@@ -274,7 +279,7 @@ global_hdr_checksum_check( global_hdr_t *hdrp )
  * else return BOOL_FALSE
  */
 bool_t 
-global_version_check( u_int32_t version )
+global_version_check( uint32_t version )
 {
 	switch (version) {
 		case GLOBAL_HDR_VERSION_0:
@@ -326,7 +331,7 @@ prompt_label( char *bufp, size_t bufsz )
 	preamblestr[ preamblecnt++ ] = "\n";
 	preamblestr[ preamblecnt++ ] = fold;
 	preamblestr[ preamblecnt++ ] = "\n\n";
-	ASSERT( preamblecnt <= PREAMBLEMAX );
+	assert( preamblecnt <= PREAMBLEMAX );
 	dlog_begin( preamblestr, preamblecnt );
 
 	responseix = dlog_string_query( prompt_label_cb,
@@ -348,7 +353,7 @@ prompt_label( char *bufp, size_t bufsz )
 		ackstr[ ackcnt++ ] = _("session label left blank\n");
 	}
 
-	ASSERT( ackcnt <= ACKMAX );
+	assert( ackcnt <= ACKMAX );
 	dlog_string_ack( ackstr,
 			 ackcnt );
 
@@ -357,7 +362,7 @@ prompt_label( char *bufp, size_t bufsz )
 	postamblestr[ postamblecnt++ ] = "\n";
 	postamblestr[ postamblecnt++ ] = fold;
 	postamblestr[ postamblecnt++ ] = "\n\n";
-	ASSERT( postamblecnt <= POSTAMBLEMAX );
+	assert( postamblecnt <= POSTAMBLEMAX );
 	dlog_end( postamblestr,
 		  postamblecnt );
 

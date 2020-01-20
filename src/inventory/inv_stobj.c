@@ -19,6 +19,8 @@
 #include <xfs/xfs.h>
 #include <xfs/jdm.h>
 
+#include <unistd.h>
+#include <stdlib.h>
 #include <time.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -26,6 +28,11 @@
 #include <sys/stat.h>
 #include <sys/dir.h>
 #include <sys/mman.h>
+#include <assert.h>
+#include <string.h>
+#include <uuid/uuid.h>
+
+#include "config.h"
 
 #include "types.h"
 #include "timeutil.h"
@@ -41,7 +48,7 @@
 /* Used in reconstruction of the inventory. We add a session to this    */
 /* storage object whether or not it has reached its maximum.            */
 /*----------------------------------------------------------------------*/
-intgen_t
+int
 stobj_insert_session( invt_idxinfo_t *idx,
 		      int fd, /* kept locked EX by caller */
 		      invt_sessinfo_t *s )
@@ -56,7 +63,7 @@ stobj_insert_session( invt_idxinfo_t *idx,
 	/* Check the existing sessions to make sure that we're not
 	   duplicating this session */
 	if ( sescnt->ic_curnum > 0 ) {
-		u_int i;
+		uint i;
 		invt_session_t	*sessions = calloc( sescnt->ic_curnum, 
 				   sizeof( invt_session_t ) );
 		if ( GET_REC_NOLOCK( fd, sessions, sescnt->ic_curnum *
@@ -117,10 +124,10 @@ stobj_insert_session( invt_idxinfo_t *idx,
 
 
 /* ARGSUSED */
-u_int
-stobj_find_splitpoint( int fd, invt_seshdr_t *harr, u_int ns, time32_t tm )
+uint
+stobj_find_splitpoint( int fd, invt_seshdr_t *harr, uint ns, time32_t tm )
 {
-	u_int i;
+	uint i;
 
 	if ( harr[ns-1].sh_time < tm )
 		return ns;
@@ -154,12 +161,12 @@ stobj_find_splitpoint( int fd, invt_seshdr_t *harr, u_int ns, time32_t tm )
 /*                                                                      */
 /*----------------------------------------------------------------------*/
 
-intgen_t
+int
 stobj_split( invt_idxinfo_t *idx, int fd, invt_sescounter_t *sescnt, 
 	     invt_sessinfo_t *newsess )
 {
 	invt_seshdr_t 	*harr = NULL;
-	u_int          	i, ix, ns = sescnt->ic_curnum;
+	uint          	i, ix, ns = sescnt->ic_curnum;
 	void        	*bufpp;
 	size_t        	bufszp;
 	invt_sessinfo_t sesinfo;
@@ -168,7 +175,7 @@ stobj_split( invt_idxinfo_t *idx, int fd, invt_sescounter_t *sescnt,
 	if ( GET_SESHEADERS( fd, &harr, ns ) < 0 )
 		return -1;
 	
-	ASSERT( harr != NULL );
+	assert( harr != NULL );
 
 	if ( ( ix = stobj_find_splitpoint( fd, harr, ns, 
 				       newsess->seshdr->sh_time ) ) == 0 )
@@ -263,7 +270,7 @@ stobj_split( invt_idxinfo_t *idx, int fd, invt_sescounter_t *sescnt,
 
 
 /* ARGSUSED */
-intgen_t
+int
 stobj_delete_mfile( int fd, inv_stream_t *strm, invt_mediafile_t *mf,
 		    off64_t  mfileoff )
 {
@@ -335,7 +342,7 @@ stobj_put_session(
 		sescnt->ic_eof += (off64_t)( ses->s_max_nstreams * 
 					     sizeof( invt_stream_t ) );
 	} else {
-		u_int i;
+		uint i;
 		size_t nmf = 0;
 		sescnt->ic_eof += (off64_t)( ses->s_cur_nstreams * 
 					     sizeof( invt_stream_t ) );
@@ -379,8 +386,8 @@ stobj_put_session(
 /*                                                                      */
 /*----------------------------------------------------------------------*/
 
-intgen_t
-stobj_sortheaders( int fd, u_int num )
+int
+stobj_sortheaders( int fd, uint num )
 {
 	size_t sz = sizeof( invt_seshdr_t ) * num;
 	invt_seshdr_t *hdrs;
@@ -390,7 +397,7 @@ stobj_sortheaders( int fd, u_int num )
 	if ( num < 2 ) return 1;
 
 	hdrs = malloc( sz );
-	ASSERT( hdrs );
+	assert( hdrs );
 
 	if ( GET_REC_NOLOCK( fd, hdrs, sz, STOBJ_OFFSET( 0, 0 ) ) < 0 ) {
 		free ( hdrs );
@@ -429,16 +436,16 @@ stobj_sortheaders( int fd, u_int num )
 /* after adjusting their offsets.                                       */
 /*----------------------------------------------------------------------*/
 
-intgen_t
+int
 stobj_put_streams( int fd, invt_seshdr_t *hdr, invt_session_t *ses, 
 		   invt_stream_t *strms,
 		   invt_mediafile_t *mfiles )
 {
-	u_int	nstm = ses->s_cur_nstreams;
+	uint	nstm = ses->s_cur_nstreams;
 	off64_t off  = hdr->sh_streams_off;
 	off64_t mfileoff = off + (off64_t)( nstm * sizeof( invt_stream_t ) );
-	u_int nmfiles = 0;
-	u_int i,j;
+	uint nmfiles = 0;
+	uint i,j;
 
 	/* fix the offsets in streams */
 	for ( i = 0; i < nstm; i++ ) {
@@ -505,7 +512,7 @@ stobj_makefname( char *fname )
 	strcat( fname, str );
 	strcat( fname, INV_STOBJ_PREFIX );
 
-	ASSERT( (int) strlen( fname ) < INV_STRLEN );
+	assert( (int) strlen( fname ) < INV_STRLEN );
 }
 
 
@@ -561,7 +568,7 @@ stobj_create( char *fname )
 /*----------------------------------------------------------------------*/
 
 
-intgen_t
+int
 stobj_create_session( 
 	inv_sestoken_t tok, 
 	int fd, /* kept locked EX by caller */
@@ -571,7 +578,7 @@ stobj_create_session(
 {
 	off64_t hoff;
 	
-	ASSERT( tok && sescnt && ses && hdr );
+	assert( tok && sescnt && ses && hdr );
 
 	hdr->sh_sess_off = -1;
 	ses->s_cur_nstreams = 0;
@@ -595,7 +602,7 @@ stobj_create_session(
 /* The stobj_fd in the stream token is kept locked EX by caller.        */
 /*----------------------------------------------------------------------*/
 
-intgen_t
+int
 stobj_put_mediafile( inv_stmtoken_t tok, invt_mediafile_t *mf )
 {
 	int  rval;
@@ -701,7 +708,7 @@ stobj_put_mediafile( inv_stmtoken_t tok, invt_mediafile_t *mf )
 /* caller takes the responsibility of locking.                          */
 /*----------------------------------------------------------------------*/
 
-intgen_t
+int
 stobj_get_sessinfo ( inv_sestoken_t tok, invt_seshdr_t *hdr, 
 		     invt_session_t *ses )
 {
@@ -731,7 +738,7 @@ stobj_pack_sessinfo( int fd, invt_session_t *ses, invt_seshdr_t *hdr,
 		     void  **bufpp, size_t *bufszp )
 {
 	size_t	      	stmsz;
-	u_int		i, j;
+	uint		i, j;
 	size_t		sessz;
 	invt_stream_t  *strms;
 	char	       *sesbuf, *sesbufcp;
@@ -759,7 +766,7 @@ stobj_pack_sessinfo( int fd, invt_session_t *ses, invt_seshdr_t *hdr,
 
 	/* Now we know how big this entire thing is going to be */
 	sesbufcp = sesbuf = calloc( 1, sessz );
-	ASSERT( sesbuf );
+	assert( sesbuf );
 
 	/* Copy everything. Note that we don't bother to adjust the offsets
 	   either in the seshdr or in the mediafiles, because we don't need
@@ -801,7 +808,7 @@ stobj_pack_sessinfo( int fd, invt_session_t *ses, invt_seshdr_t *hdr,
 		for ( j = 0; j < strms[i].st_nmediafiles; 
 		     j++, 
 		     off = mf.mf_nextmf ) {
-			ASSERT( off );
+			assert( off );
 			if ( GET_REC_NOLOCK( fd, &mf, 
 					     sizeof( invt_mediafile_t ),
 					     off ) <= 0 ) {
@@ -911,8 +918,8 @@ stobj_delete_mobj(int fd,
 	invt_stream_t  *strms;
 	off64_t		off;
 	invt_mediafile_t *mf, *mfiles;
-	u_int 		nmfiles;
-	u_int		i, j;
+	uint 		nmfiles;
+	uint		i, j;
 	bool_t 		dirty;
 
 	if ( GET_REC_NOLOCK( fd, &ses, sizeof( invt_session_t ),
@@ -941,7 +948,7 @@ stobj_delete_mobj(int fd,
 /*  The prob is that we need to keep track of where we got these mfiles from
     as we get them, or we wont know how to put them back if they are dirty.
 */
-			ASSERT( off );
+			assert( off );
 			if ( GET_REC_NOLOCK( fd, mf, 
 					     sizeof( invt_mediafile_t ),
 					     off ) <= 0 ) {
@@ -1001,11 +1008,11 @@ stobj_unpack_sessinfo(
         size_t             bufsz,
 	invt_sessinfo_t   *s )
 {
-	u_int 		 i;
+	uint 		 i;
 	char	         *tmpbuf;
 	char 		 *p = (char *)bufp;
 	
-	ASSERT ( bufp );
+	assert ( bufp );
 	
 	tmpbuf = (char *)malloc(bufsz);
 
@@ -1084,7 +1091,7 @@ stobj_unpack_sessinfo(
 #ifdef INVT_DELETION
 	{
 		int tmpfd = open( "moids", O_RDWR | O_CREAT, S_IRUSR|S_IWUSR );
-		u_int j;
+		uint j;
 		invt_mediafile_t *mmf = s->mfiles;
 		for (i=0; i< s->ses->s_cur_nstreams; i++ ) {
 			for (j=0; j< s->strms[ i ].st_nmediafiles; 
@@ -1109,7 +1116,7 @@ stobj_unpack_sessinfo(
 		      (int)( p - (char *) bufp ), (int) bufsz,
 	      (int) ( sizeof( invt_entry_t ) ) );
 	}
-	ASSERT( (size_t) ( p - (char *) bufp ) == bufsz );
+	assert( (size_t) ( p - (char *) bufp ) == bufsz );
 	
 	return BOOL_TRUE;
 }
@@ -1121,7 +1128,7 @@ stobj_unpack_sessinfo(
 /*                                                                      */
 /*----------------------------------------------------------------------*/
 
-intgen_t
+int
 stobj_make_invsess( int fd, inv_session_t **buf, invt_seshdr_t *hdr )
 {
 	invt_session_t ses;
@@ -1200,7 +1207,7 @@ stobj_convert_session(inv_session_t *ises, invt_session_t *ses,
 /*                                                                      */
 /*----------------------------------------------------------------------*/
 
-intgen_t
+int
 stobj_copy_invsess(int fd,  
 		   invt_seshdr_t *hdr,
 		   invt_session_t *ses,
@@ -1229,7 +1236,7 @@ stobj_copy_invsess(int fd,
 	i = (int) ses->s_cur_nstreams;
 	while ( i-- ) {
 		off64_t		 off;
-		u_int            j, nmf;
+		uint            j, nmf;
 		
 		stobj_convert_strm(&ises->s_streams[i], &strms[i]);
 		nmf = strms[i].st_nmediafiles;
@@ -1238,12 +1245,12 @@ stobj_copy_invsess(int fd,
 		if (nmf)
 			ises->s_streams[i].st_mediafiles = calloc( nmf,
 						    sizeof( inv_mediafile_t ) );
-		ASSERT( !nmf || ises->s_streams[i].st_mediafiles );
+		assert( !nmf || ises->s_streams[i].st_mediafiles );
 
 		for ( j = 0; j < nmf; 
 		      j++, 
 		      off = mf.mf_nextmf ) {
-			ASSERT( off );
+			assert( off );
 			if ( GET_REC_NOLOCK( fd, &mf, 
 					     sizeof( invt_mediafile_t ),
 					     off ) <= 0 ) {
@@ -1299,7 +1306,7 @@ stobj_convert_sessinfo(inv_session_t **buf, invt_sessinfo_t *sinfo)
 	for ( i = 0 ; i < nstreams ; i++ ) {
 		stobj_convert_strm(&ises->s_streams[i], &sinfo->strms[i]);
 		nmf = (int) ises->s_streams[i].st_nmediafiles;
-		ises->s_streams[i].st_mediafiles = calloc( (u_int) nmf,
+		ises->s_streams[i].st_mediafiles = calloc( (uint) nmf,
 						    sizeof( inv_mediafile_t ) );
 
 		for ( j = 0; j < nmf; j++ ) {
@@ -1366,7 +1373,7 @@ bool_t
 check_for_mobj ( inv_session_t *ses, invt_mobjinfo_t *mobj )
 {
 	int i;
-	u_int j;
+	uint j;
 	inv_mediafile_t *mfp;
 
 	for (i = 0; i < (int) ses->s_nstreams; i++ ) {
@@ -1384,12 +1391,12 @@ check_for_mobj ( inv_session_t *ses, invt_mobjinfo_t *mobj )
 
 
 void
-DEBUG_sessionprint( inv_session_t *ses, u_int ref, invt_pr_ctx_t *prctx)
+DEBUG_sessionprint( inv_session_t *ses, uint ref, invt_pr_ctx_t *prctx)
 {
 	char str[UUID_STR_LEN + 1];
 	int i;
 	inv_mediafile_t *mfp;
-	static u_int fsidxprinted = -1;
+	static uint fsidxprinted = -1;
 
        invt_mobjinfo_t *mobj = &prctx->mobj;
 
@@ -1399,8 +1406,8 @@ DEBUG_sessionprint( inv_session_t *ses, u_int ref, invt_pr_ctx_t *prctx)
 			return;
 	}
 		
-	if ( ref == 0 || fsidxprinted != (u_int) prctx->index ) {
-		fsidxprinted = (u_int) prctx->index;
+	if ( ref == 0 || fsidxprinted != (uint) prctx->index ) {
+		fsidxprinted = (uint) prctx->index;
 
 		printf("file system %d:\n", prctx->index);
 		uuid_unparse( ses->s_fsid, str );
@@ -1429,7 +1436,7 @@ DEBUG_sessionprint( inv_session_t *ses, u_int ref, invt_pr_ctx_t *prctx)
 		return;
 
 	for (i = 0; i < (int) ses->s_nstreams; i++ ) {
-		u_int j;
+		uint j;
 		printf("\t\tstream %d:\n", i );
 		printf( "\t\t\tpathname:\t%s\n", ses->s_streams[i].st_cmdarg );
 		printf( "\t\t\tstart:\t\tino %llu offset %lld\n",

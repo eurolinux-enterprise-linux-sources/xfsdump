@@ -16,15 +16,19 @@
  * Inc.,  51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
-#include <xfs/xfs.h>
-#include <xfs/jdm.h>
-#include "config.h"
-
+#include <unistd.h>
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <dirent.h>
+#include <assert.h>
+#include <string.h>
+#include <xfs/xfs.h>
+#include <xfs/jdm.h>
+
+#include "config.h"
 
 #include "types.h"
 #include "util.h"
@@ -33,7 +37,7 @@
 
 extern size_t pgsz;
 
-intgen_t
+int
 write_buf( char *bufp,
 	   size_t bufsz,
 	   void *contextp,
@@ -46,9 +50,9 @@ write_buf( char *bufp,
 	while ( bufsz ) {
 		int rval;
 
-		ASSERT( bufsz > 0 );
+		assert( bufsz > 0 );
 		mbufp = ( *get_write_buf_funcp )( contextp, bufsz, &mbufsz );
-		ASSERT( mbufsz <= bufsz );
+		assert( mbufsz <= bufsz );
 		if ( bufp ) {
 			(void)memcpy( ( void * )mbufp, ( void * )bufp, mbufsz );
 		} else {
@@ -67,17 +71,17 @@ write_buf( char *bufp,
 	return 0;
 }
 
-intgen_t
+int
 read_buf( char *bufp,
 	  size_t bufsz, 
 	  void *contextp,
 	  rfp_t read_funcp,
 	  rrbfp_t return_read_buf_funcp,
-	  intgen_t *statp )
+	  int *statp )
 {
 	char *mbufp;		/* manager's buffer pointer */
 	size_t mbufsz;	/* size of manager's buffer */
-	intgen_t nread;
+	int nread;
 
 	nread = 0;
 	*statp = 0;
@@ -86,13 +90,13 @@ read_buf( char *bufp,
 		if ( *statp ) {
 			break;
 		}
-		ASSERT( mbufsz <= bufsz );
+		assert( mbufsz <= bufsz );
 		if ( bufp ) {
 			( void )memcpy( (void *)bufp, (void *)mbufp, mbufsz );
 			bufp += mbufsz;
 		}
 		bufsz -= mbufsz;
-		nread += ( intgen_t )mbufsz;
+		nread += ( int )mbufsz;
 		( * return_read_buf_funcp )( contextp, mbufp, mbufsz );
 	}
 
@@ -110,24 +114,24 @@ char
 	return rval;
 }
 
-intgen_t
+int
 bigstat_iter( jdm_fshandle_t *fshandlep,
-	      intgen_t fsfd,
-	      intgen_t selector,
+	      int fsfd,
+	      int selector,
 	      xfs_ino_t start_ino,
 	      bstat_cbfp_t fp,
 	      void * cb_arg1,
 	      bstat_seekfp_t seekfp,
 	      void * seek_arg1,
-	      intgen_t *statp,
+	      int *statp,
 	      bool_t ( pfp )( int ),
 	      xfs_bstat_t *buf,
 	      size_t buflenin )
 {
 	__s32 buflenout;
 	xfs_ino_t lastino;
-	intgen_t saved_errno;
-	intgen_t bulkstatcnt;
+	int saved_errno;
+	int bulkstatcnt;
         xfs_fsop_bulkreq_t bulkreq;
 
 	/* stat set with return from callback func
@@ -172,7 +176,7 @@ bigstat_iter( jdm_fshandle_t *fshandlep,
 		      buflenout,
 		      buf->bs_ino );
 		for ( p = buf, endp = buf + buflenout ; p < endp ; p++ ) {
-			intgen_t rval;
+			int rval;
 
 			if ( p->bs_ino == 0 )
 				continue;
@@ -247,15 +251,15 @@ bigstat_iter( jdm_fshandle_t *fshandlep,
 }
 
 /* ARGSUSED */
-intgen_t
-bigstat_one( intgen_t fsfd,
+int
+bigstat_one( int fsfd,
 	     xfs_ino_t ino,
 	     xfs_bstat_t *statp )
 {
         xfs_fsop_bulkreq_t bulkreq;
-	intgen_t count = 0;
+	int count = 0;
 
-	ASSERT( ino > 0 );
+	assert( ino > 0 );
         bulkreq.lastip = (__u64 *)&ino;
         bulkreq.icount = 1;
         bulkreq.ubuffer = statp;
@@ -266,16 +270,16 @@ bigstat_one( intgen_t fsfd,
 /* call the given callback for each inode group in the filesystem.
  */
 #define INOGRPLEN	256
-intgen_t
-inogrp_iter( intgen_t fsfd,
-	     intgen_t ( * fp )( void *arg1,
-				intgen_t fsfd,
+int
+inogrp_iter( int fsfd,
+	     int ( * fp )( void *arg1,
+				int fsfd,
 				xfs_inogrp_t *inogrp ),
 	     void * arg1,
-	     intgen_t *statp )
+	     int *statp )
 {
 	xfs_ino_t lastino;
-	intgen_t inogrpcnt;
+	int inogrpcnt;
 	xfs_inogrp_t *igrp;
         xfs_fsop_bulkreq_t bulkreq;
 
@@ -305,7 +309,7 @@ inogrp_iter( intgen_t fsfd,
 			return 0;
 		}
 		for ( p = igrp, endp = igrp + inogrpcnt ; p < endp ; p++ ) {
-			intgen_t rval;
+			int rval;
 
 			rval = ( * fp )( arg1, fsfd, p );
 			if ( rval ) {
@@ -332,35 +336,35 @@ inogrp_iter( intgen_t fsfd,
  *
  * caller may supply a dirent buffer. if not, will malloc one
  */
-intgen_t
+int
 diriter( jdm_fshandle_t *fshandlep,
-	 intgen_t fsfd,
+	 int fsfd,
 	 xfs_bstat_t *statp,
-	 intgen_t ( *cbfp )( void *arg1,
+	 int ( *cbfp )( void *arg1,
 			     jdm_fshandle_t *fshandlep,
-			     intgen_t fsfd,
+			     int fsfd,
 			     xfs_bstat_t *statp,
 			     char *namep ),
 	 void *arg1,
-	 intgen_t *cbrvalp,
+	 int *cbrvalp,
 	 char *usrgdp,
 	 size_t usrgdsz )
 {
 	size_t gdsz;
 	struct dirent *gdp;
-	intgen_t fd;
-	intgen_t gdcnt;
-	intgen_t scrval;
-	intgen_t cbrval;
+	int fd;
+	int gdcnt;
+	int scrval;
+	int cbrval;
 
 	if ( usrgdp ) {
-		ASSERT( usrgdsz >= sizeof( struct dirent ) );
+		assert( usrgdsz >= sizeof( struct dirent ) );
 		gdsz = usrgdsz;
 		gdp = ( struct dirent * )usrgdp;
 	} else {
 		gdsz = pgsz;
 		gdp = ( struct dirent * )malloc( gdsz );
-		ASSERT( gdp );
+		assert( gdp );
 	}
 
 	/* open the directory
@@ -377,7 +381,7 @@ diriter( jdm_fshandle_t *fshandlep,
 		}
 		return -1;
 	}
-	ASSERT( ( statp->bs_mode & S_IFMT ) == S_IFDIR );
+	assert( ( statp->bs_mode & S_IFMT ) == S_IFDIR );
 
 	/* lots of buffering done here, to achieve OS-independence.
 	 * if proves to be to much overhead, can streamline.
@@ -386,11 +390,11 @@ diriter( jdm_fshandle_t *fshandlep,
 	cbrval = 0;
 	for ( gdcnt = 1 ; ; gdcnt++ ) {
 		struct dirent *p;
-		intgen_t nread;
+		int nread;
 		register size_t reclen;
 
-		ASSERT( scrval == 0 );
-		ASSERT( cbrval == 0 );
+		assert( scrval == 0 );
+		assert( cbrval == 0 );
 
 		nread = getdents_wrap( fd, (char *)gdp, gdsz );
 		
@@ -420,13 +424,13 @@ diriter( jdm_fshandle_t *fshandlep,
 		      ;
 		      nread > 0
 		      ;
-		      nread -= ( intgen_t )reclen,
-		      ASSERT( nread >= 0 ),
+		      nread -= ( int )reclen,
+		      assert( nread >= 0 ),
 		      p = ( struct dirent * )( ( char * )p + reclen ),
 		      reclen = ( size_t )p->d_reclen ) {
 			xfs_bstat_t statbuf;
-			ASSERT( scrval == 0 );
-			ASSERT( cbrval == 0 );
+			assert( scrval == 0 );
+			assert( cbrval == 0 );
 
 			/* skip "." and ".."
 			 */
@@ -525,49 +529,4 @@ cvtnum( int blocksize, char *s )
 	if (*sp == 'm' && sp[1] == '\0')
 		return 1024 * 1024 * i;
 	return -1;
-}
-
-void
-fold_init( fold_t fold, char *infostr, char c )
-{
-	size_t infolen;
-	size_t dashlen;
-	size_t predashlen;
-	size_t postdashlen;
-	char *p;
-	char *endp;
-	ix_t cnt;
-
-	ASSERT( sizeof( fold_t ) == FOLD_LEN + 1 );
-
-	infolen = strlen( infostr );
-	if ( infolen > FOLD_LEN - 4 ) {
-		infolen = FOLD_LEN - 4;
-	}
-	dashlen = FOLD_LEN - infolen - 3;
-	predashlen = dashlen / 2;
-	postdashlen = dashlen - predashlen;
-
-	p = &fold[ 0 ];
-	endp = &fold[ sizeof( fold_t ) - 1 ];
-
-	ASSERT( p < endp );
-	*p++ = ' ';
-	for ( cnt = 0 ; cnt < predashlen && p < endp ; cnt++, p++ ) {
-		*p = c;
-	}
-	ASSERT( p < endp );
-	*p++ = ' ';
-	ASSERT( p < endp );
-	ASSERT( p + infolen < endp );
-	strcpy( p, infostr );
-	p += infolen;
-	ASSERT( p < endp );
-	*p++ = ' ';
-	ASSERT( p < endp );
-	for ( cnt = 0 ; cnt < postdashlen && p < endp ; cnt++, p++ ) {
-		*p = c;
-	}
-	ASSERT( p <= endp );
-	*p = 0;
 }

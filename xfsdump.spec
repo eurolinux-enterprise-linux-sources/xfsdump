@@ -1,13 +1,13 @@
 Summary: Administrative utilities for the XFS filesystem
 Name: xfsdump
-Version: 3.1.4
+Version: 3.1.7
 Release: 1%{?dist}
 # Licensing based on generic "GNU GENERAL PUBLIC LICENSE"
 # in source, with no mention of version.
 License: GPL+
 Group: System Environment/Base
 URL: http://oss.sgi.com/projects/xfs/
-Source0: ftp://oss.sgi.com/projects/xfs/cmd_tars/%{name}-%{version}.tar.gz
+Source0: https://www.kernel.org/pub/linux/utils/fs/xfs/%{name}/%{name}-%{version}.tar.xz
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 BuildRequires: libtool, gettext, gawk
 BuildRequires: xfsprogs-devel, libuuid-devel, libattr-devel ncurses-devel
@@ -61,6 +61,10 @@ rm -rf $RPM_BUILD_ROOT
 %{_sbindir}/*
 
 %changelog
+* Fri Nov 03 2017 Eric Sandeen <sandeen@redhat.com> 3.1.7-1
+- Rebase to build against current RHEL7 xfsprogs headers
+- Fix race condition between lseek() and read()/write() (#1086532)
+
 * Mon Feb 17 2014 Eric Sandeen <sandeen@redhat.com> 3.1.4-1
 - Fix aarch64 build (#1028131)
 - Rebase to 3.1.4 to roll up prior individual patches

@@ -16,15 +16,17 @@
  * Inc.,  51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
-#include <xfs/xfs.h>
-#include <xfs/jdm.h>
-
+#include <unistd.h>
 #include <sys/wait.h>
 #include <sys/ipc.h>
 #include <sys/sem.h>
 #include <sys/prctl.h>
 #include <errno.h>
 #include <pthread.h>
+#include <assert.h>
+#include <string.h>
+
+#include "config.h"
 
 #include "exit.h"
 #include "types.h"
@@ -42,7 +44,7 @@ typedef enum { C_AVAIL, C_ALIVE, C_EXITED } state_t;
 
 struct cld {
 	state_t c_state;
-	intgen_t c_exit_code;
+	int c_exit_code;
 	pthread_t c_tid;
 	ix_t c_streamix;
 	int ( * c_entry )( void *arg1 );
@@ -77,9 +79,9 @@ cldmgr_create( int ( * entry )( void *arg1 ),
 	       void *arg1 )
 {
 	cld_t *cldp;
-	intgen_t rval;
+	int rval;
 
-	ASSERT( pthread_equal( pthread_self( ), cldmgr_parenttid ) );
+	assert( pthread_equal( pthread_self( ), cldmgr_parenttid ) );
 
 	cldp = cldmgr_getcld( );
 	if ( ! cldp ) {
@@ -123,17 +125,17 @@ cldmgr_stop( void )
 	cldmgr_stopflag = BOOL_TRUE;
 }
 
-intgen_t
+int
 cldmgr_join( void )
 {
 	cld_t *p = cld;
 	cld_t *ep = cld + sizeof( cld ) / sizeof( cld[ 0 ] );
-	intgen_t xc = EXIT_NORMAL;
+	int xc = EXIT_NORMAL;
 
 	lock();
 	for ( ; p < ep ; p++ ) {
 		if ( p->c_state == C_EXITED ) {
-			if ( ( intgen_t )( p->c_streamix ) >= 0 ) {
+			if ( ( int )( p->c_streamix ) >= 0 ) {
 				stream_dead( p->c_tid );
 			}
 			pthread_join( p->c_tid, NULL );
@@ -225,8 +227,8 @@ cldmgr_entry( void *arg1 )
 
 	pthread_cleanup_push( cldmgr_cleanup, arg1 );
 
-	if ( ( intgen_t )( cldp->c_streamix ) >= 0 ) {
-		stream_register( tid, ( intgen_t )cldp->c_streamix );
+	if ( ( int )( cldp->c_streamix ) >= 0 ) {
+		stream_register( tid, ( int )cldp->c_streamix );
 	}
 	mlog( MLOG_DEBUG | MLOG_PROC,
 	      "thread %lu created for stream %d\n",

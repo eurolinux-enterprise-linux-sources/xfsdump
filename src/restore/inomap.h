@@ -48,9 +48,9 @@
  */
 struct seg {
 	xfs_ino_t base;
-	u_int64_t lobits;
-	u_int64_t mebits;
-	u_int64_t hibits;
+	uint64_t lobits;
+	uint64_t mebits;
+	uint64_t hibits;
 };
 
 typedef struct seg seg_t;
@@ -79,7 +79,7 @@ extern bool_t inomap_rst_needed( xfs_ino_t begino, xfs_ino_t endino );
 extern void inomap_rst_add( xfs_ino_t ino );
 extern void inomap_rst_del( xfs_ino_t ino );
 extern rv_t inomap_discard( drive_t *drivep, content_inode_hdr_t *scrhdrp );
-extern void inomap_cbiter( intgen_t mapstatemask,
+extern void inomap_cbiter( int mapstatemask,
 			   bool_t ( * cbfunc )( void *ctxp, xfs_ino_t ino ),
 			   void *ctxp );
 

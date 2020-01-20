@@ -19,10 +19,15 @@
 #include <xfs/xfs.h>
 #include <xfs/jdm.h>
 
+#include <unistd.h>
+#include <stdlib.h>
 #include <sys/mman.h>
 #include <errno.h>
 #include <memory.h>
 #include <limits.h>
+#include <assert.h>
+
+#include "config.h"
 
 #include "types.h"
 #include "mlog.h"
@@ -106,7 +111,7 @@ extern size_t pgmask;
  */
 #define NODE_HDRSZ	pgsz
 
-typedef intgen_t relnix_t;
+typedef int relnix_t;
 
 struct node_hdr {
 	size_t nh_nodesz;
@@ -139,7 +144,7 @@ struct node_hdr {
 	nh_t nh_virgnh;
 		/* handle of next virgin node
 		 */
-	intgen_t nh_segixshift;
+	int nh_segixshift;
 		/* bitshift used to extract the segment index from an nh_t
 		 */
 	relnix_t nh_relnixmask;
@@ -151,7 +156,7 @@ struct node_hdr {
 typedef struct node_hdr node_hdr_t;
 
 static node_hdr_t *node_hdrp;
-static intgen_t node_fd;
+static int node_fd;
 
 static inline segix_t
 nh2segix( nh_t nh )
@@ -188,9 +193,9 @@ node_unmap_internal( nh_t nh, void **pp, bool_t freepr )
 	register u_char_t nodeunq;
 #endif /* NODECHK */
 
-	ASSERT( pp );
-	ASSERT( *pp );
-	ASSERT( nh != NH_NULL );
+	assert( pp );
+	assert( *pp );
+	assert( nh != NH_NULL );
 
 	/* convert the handle into an index
 	 */
@@ -199,19 +204,19 @@ node_unmap_internal( nh_t nh, void **pp, bool_t freepr )
 	nh = HDLGETNHDL( nh );
 #endif /* NODECHK */
 
-	ASSERT( nh <= NH_MAX );
+	assert( nh <= NH_MAX );
 
 #ifdef NODECHK
 	hkp = *( *( u_char_t ** )pp + node_hdrp->nh_nodehkix );
 	nodegen = HKPGETGEN( hkp );
-	ASSERT( nodegen == hdlgen );
+	assert( nodegen == hdlgen );
 	nodeunq = HKPGETUNQ( hkp );
 	if ( ! freepr ) {
-		ASSERT( nodeunq != NODEUNQFREE );
-		ASSERT( nodeunq == NODEUNQALCD );
+		assert( nodeunq != NODEUNQFREE );
+		assert( nodeunq == NODEUNQALCD );
 	} else {
-		ASSERT( nodeunq != NODEUNQALCD );
-		ASSERT( nodeunq == NODEUNQFREE );
+		assert( nodeunq != NODEUNQALCD );
+		assert( nodeunq == NODEUNQFREE );
 	}
 #endif /* NODECHK */
 
@@ -222,7 +227,7 @@ node_unmap_internal( nh_t nh, void **pp, bool_t freepr )
 
 /* ARGSUSED */
 bool_t
-node_init( intgen_t fd,
+node_init( int fd,
 	   off64_t off,
 	   size_t usrnodesz,
 	   ix_t nodehkix,
@@ -236,20 +241,20 @@ node_init( intgen_t fd,
 	size_t max_segments;
 	size_t winmapmax;
 	size_t segcount;
-	intgen_t segixshift;
+	int segixshift;
 
 	/* sanity checks
 	 */
-	ASSERT( sizeof( node_hdr_t ) <= NODE_HDRSZ );
-	ASSERT( sizeof( nh_t ) < sizeof( off64_t ));
-	ASSERT( sizeof( nh_t ) <= sizeof( segix_t ));
-	ASSERT( sizeof( nh_t ) <= sizeof( relnix_t ));
-	ASSERT( nodehkix < usrnodesz );
-	ASSERT( usrnodesz >= sizeof( char * ) + 1 );
+	assert( sizeof( node_hdr_t ) <= NODE_HDRSZ );
+	assert( sizeof( nh_t ) < sizeof( off64_t ));
+	assert( sizeof( nh_t ) <= sizeof( segix_t ));
+	assert( sizeof( nh_t ) <= sizeof( relnix_t ));
+	assert( nodehkix < usrnodesz );
+	assert( usrnodesz >= sizeof( char * ) + 1 );
 		/* so node is at least big enough to hold
 		 * the free list linkage and the housekeeping byte
 		 */
-	ASSERT( nodehkix > sizeof( char * ));
+	assert( nodehkix > sizeof( char * ));
 		/* since beginning of each node is used to
 		 * link it in the free list.
 		 */
@@ -283,7 +288,7 @@ node_init( intgen_t fd,
 	 * reasonable cap on the max number of segments.
 	 */
 
-	ASSERT( NODESPERSEG_MIN >= pgsz );
+	assert( NODESPERSEG_MIN >= pgsz );
 
 	if ( vmsz < WINMAP_MIN * NODESPERSEG_MIN * nodesz ) {
 		mlog( MLOG_NORMAL | MLOG_ERROR, _(
@@ -331,10 +336,10 @@ node_init( intgen_t fd,
 
 	/* map the abstraction header
 	 */
-	ASSERT( ( NODE_HDRSZ & pgmask ) == 0 );
-	ASSERT( ! ( NODE_HDRSZ % pgsz ));
-	ASSERT( off <= OFF64MAX );
-	ASSERT( ! ( off % ( off64_t )pgsz ));
+	assert( ( NODE_HDRSZ & pgmask ) == 0 );
+	assert( ! ( NODE_HDRSZ % pgsz ));
+	assert( off <= OFF64MAX );
+	assert( ! ( off % ( off64_t )pgsz ));
 	node_hdrp = ( node_hdr_t * )mmap_autogrow(
 					    NODE_HDRSZ,
 					    fd,
@@ -390,17 +395,17 @@ node_init( intgen_t fd,
 }
 
 bool_t
-node_sync( intgen_t fd, off64_t off )
+node_sync( int fd, off64_t off )
 {
 	/* sanity checks
 	 */
-	ASSERT( sizeof( node_hdr_t ) <= NODE_HDRSZ );
+	assert( sizeof( node_hdr_t ) <= NODE_HDRSZ );
 
 	/* map the abstraction header
 	 */
-	ASSERT( ( NODE_HDRSZ & pgmask ) == 0 );
-	ASSERT( off <= ( off64_t )OFF64MAX );
-	ASSERT( ! ( off % ( off64_t )pgsz ));
+	assert( ( NODE_HDRSZ & pgmask ) == 0 );
+	assert( off <= ( off64_t )OFF64MAX );
+	assert( ! ( off % ( off64_t )pgsz ));
 	node_hdrp = ( node_hdr_t * )mmap_autogrow(
 					    NODE_HDRSZ,
 					    fd,
@@ -454,8 +459,8 @@ node_alloc( void )
 		hkpp = p + node_hdrp->nh_nodehkix;
 		gen = ( u_char_t )( HKPGETGEN( *p ) + ( u_char_t )1 );
 		unq = HKPGETUNQ( *hkpp );
-		ASSERT( unq != NODEUNQALCD );
-		ASSERT( unq == NODEUNQFREE );
+		assert( unq != NODEUNQALCD );
+		assert( unq == NODEUNQFREE );
 #endif /* NODECHK */
 
 		/* adjust the free list */
@@ -467,13 +472,13 @@ node_alloc( void )
 	} else {
 		if ( nh2relnix( node_hdrp->nh_virgnh ) == 0 ) {
 			/* need to start a new virgin segment */
-			intgen_t rval;
+			int rval;
 			off64_t new_seg_off =
 				node_hdrp->nh_firstsegoff +
 				( off64_t )nh2segix( node_hdrp->nh_virgnh ) *
 				( off64_t )node_hdrp->nh_segsz;
 
-			ASSERT( new_seg_off
+			assert( new_seg_off
 				<=
 				OFF64MAX - ( off64_t )node_hdrp->nh_segsz );
 			mlog( MLOG_DEBUG,
@@ -531,7 +536,7 @@ node_map( nh_t nh )
 	register u_char_t nodeunq;
 #endif /* NODECHK */
 
-	ASSERT( nh != NH_NULL );
+	assert( nh != NH_NULL );
 
 	/* convert the handle into an index
 	 */
@@ -540,7 +545,7 @@ node_map( nh_t nh )
 	nh = HDLGETNHDL( nh );
 #endif /* NODECHK */
 
-	ASSERT( nh <= NH_MAX );
+	assert( nh <= NH_MAX );
 
 	/* map in
 	 */
@@ -553,9 +558,9 @@ node_map( nh_t nh )
 	hkp = *( p + node_hdrp->nh_nodehkix );
 	nodegen = HKPGETGEN( hkp );
 	nodeunq = HKPGETUNQ( hkp );
-	ASSERT( nodegen == hdlgen );
-	ASSERT( nodeunq != NODEUNQFREE );
-	ASSERT( nodeunq == NODEUNQALCD );
+	assert( nodegen == hdlgen );
+	assert( nodeunq != NODEUNQFREE );
+	assert( nodeunq == NODEUNQALCD );
 #endif /* NODECHK */
 
 	return ( void * )p;
@@ -580,9 +585,9 @@ node_free( nh_t *nhp )
 	register u_char_t nodeunq;
 #endif /* NODECHK */
 
-	ASSERT( nhp );
+	assert( nhp );
 	nh = *nhp;
-	ASSERT( nh != NH_NULL );
+	assert( nh != NH_NULL );
 
 	/* convert the handle into an index
 	 */
@@ -591,7 +596,7 @@ node_free( nh_t *nhp )
 	nh = HDLGETNHDL( nh );
 #endif /* NODECHK */
 
-	ASSERT( nh <= NH_MAX );
+	assert( nh <= NH_MAX );
 
 	/* map in
 	 */
@@ -607,9 +612,9 @@ node_free( nh_t *nhp )
 	hkpp = p + node_hdrp->nh_nodehkix;
 	nodegen = HKPGETGEN( *hkpp );
 	nodeunq = HKPGETUNQ( *hkpp );
-	ASSERT( nodegen == hdlgen );
-	ASSERT( nodeunq != NODEUNQFREE );
-	ASSERT( nodeunq == NODEUNQALCD );
+	assert( nodegen == hdlgen );
+	assert( nodeunq != NODEUNQFREE );
+	assert( nodeunq == NODEUNQALCD );
 	*hkpp = HKPMKHKP( nodegen, NODEUNQFREE );
 #endif /* NODECHK */
 

@@ -18,6 +18,9 @@
 
 #include <xfs/xfs.h>
 #include <xfs/jdm.h>
+#include <assert.h>
+
+#include "config.h"
 
 #include "inv_priv.h"
 #include "inv_oref.h"
@@ -26,16 +29,16 @@
 /*
  * Resolve a stobj, invidx or fstab
  */
-intgen_t
+int
 oref_resolve_(
 	invt_oref_t 	*obj,
 	invt_objtype_t	type)
 {
-	intgen_t rval;
+	int rval;
 
 	type &= INVT_OTYPE_MASK;
-	ASSERT(type);
-	ASSERT(! OREF_ISRESOLVED(obj, INVT_OTYPE_MASK));
+	assert(type);
+	assert(! OREF_ISRESOLVED(obj, INVT_OTYPE_MASK));
 
 	switch (type) {
 	      case INVT_OTYPE_INVIDX:
@@ -51,7 +54,7 @@ oref_resolve_(
 		break;
 
 	      default:
-		ASSERT(0);
+		assert(0);
 		break;
 	}
 	
@@ -66,19 +69,19 @@ oref_resolve_(
  * Resolve an object reference upto a specified point 
  */
 
-intgen_t
+int
 oref_resolve_upto(
 	invt_oref_t 	*obj, 
 	invt_objtype_t	type)
 {
-	intgen_t rval = INV_OK;
+	int rval = INV_OK;
 
-	ASSERT (OREF_ISRESOLVED(obj, INVT_OTYPE_MASK));
-	ASSERT (OREF_ISLOCKED(obj));
+	assert (OREF_ISRESOLVED(obj, INVT_OTYPE_MASK));
+	assert (OREF_ISLOCKED(obj));
 
 	/* we arent interested in anything else */
 	type &= INVT_RES_MASK;
-	ASSERT(type);
+	assert(type);
 
 	if (type >= INVT_RES_COUNTERS) {
 		rval = oref_resolve_counters(obj);
@@ -104,18 +107,18 @@ oref_resolve_upto(
 
 
 
-intgen_t
+int
 oref_resolve_entries(
 	invt_oref_t 	*obj)
 {
 	if (OREF_ISRESOLVED(obj, INVT_RES_ENTRIES))
 		return INV_OK;
 
-	ASSERT(! OREF_ISRESOLVED(INVT_OTYPE_STOBJ));
+	assert(! OREF_ISRESOLVED(INVT_OTYPE_STOBJ));
 
 	if (OREF_ISRESOLVED(INVT_OTYPE_INVIDX)) {
 		invt_entry_t *ent;
-		ASSERT(OREF_CNT_CURNUM(obj));
+		assert(OREF_CNT_CURNUM(obj));
 
 		if (GET_ENTRIES(obj->fd, &ent, OREF_CNT_CURNUM(obj),
 				sizeof(invt_entry_t)) < 0){
@@ -125,7 +128,7 @@ oref_resolve_entries(
 	}
 	else {
 		invt_fstab_t *ent;
-		ASSERT(OREF_CNT_CURNUM(obj));
+		assert(OREF_CNT_CURNUM(obj));
 		if (GET_ENTRIES(obj->fd, &ent, OREF_CNT_CURNUM(obj),
 				sizeof(invt_fstab_t)) < 0){
 			return INV_ERR;
@@ -143,7 +146,7 @@ oref_resolve_entries(
 
 
 
-intgen_t
+int
 oref_resolve_counters(
 	invt_oref_t 	*obj)
 {
@@ -176,18 +179,18 @@ oref_resolve_counters(
 
 
 
-intgen_t
+int
 oref_sync(
 	invt_oref_t 	*obj, 
 	invt_objtype_t	type)
 {
-	intgen_t rval;
+	int rval;
 
 	type &= INVT_RES_MASK;
-	ASSERT(type);
-	ASSERT(OREF_ISRESOLVED(obj, INVT_OTYPE_MASK));
-	ASSERT(OREF_ISRESOLVED(obj, type));
-	ASSERT(OREF_ISLOCKED(obj));
+	assert(type);
+	assert(OREF_ISRESOLVED(obj, INVT_OTYPE_MASK));
+	assert(OREF_ISRESOLVED(obj, type));
+	assert(OREF_ISLOCKED(obj));
 
 	switch (type) {
 	      case INVT_RES_COUNTERS:
@@ -199,7 +202,7 @@ oref_sync(
 		break;
 
 	      case INVT_RES_ENTRIES:
-		ASSERT(! OREF_ISRESOLVED(obj, INVT_OTYPE_STOBJ));
+		assert(! OREF_ISRESOLVED(obj, INVT_OTYPE_STOBJ));
 
 		rval = PUT_REC_NOLOCK(obj->fd, 
 				      OREF_ENTRIES(obj), 
@@ -209,30 +212,30 @@ oref_sync(
 		break;
 
 	      default:
-		ASSERT(0);
+		assert(0);
 		break;
 	}
 	
 	return rval;
 }
 
-intgen_t
+int
 oref_sync_append(
 	invt_oref_t 	*obj, 
 	invt_objtype_t	type,
 	void		*entry,
 	size_t		entsz)
 {
-	intgen_t rval;
+	int rval;
 
 	type &= INVT_RES_MASK;
-	ASSERT(type);
-	ASSERT(OREF_ISRESOLVED(obj, INVT_OTYPE_MASK));
-	ASSERT(OREF_ISLOCKED(obj));
+	assert(type);
+	assert(OREF_ISRESOLVED(obj, INVT_OTYPE_MASK));
+	assert(OREF_ISLOCKED(obj));
 
 	switch (type) {
 	      case INVT_RES_ENTRIES:
-		ASSERT(! OREF_ISRESOLVED(obj, INVT_OTYPE_STOBJ));
+		assert(! OREF_ISRESOLVED(obj, INVT_OTYPE_STOBJ));
 		
 		rval = PUT_REC_NOLOCK(obj->fd, 
 				      entry,
@@ -245,7 +248,7 @@ oref_sync_append(
 		break;
 
 	      default:
-		ASSERT(0);
+		assert(0);
 		break;
 	}
 	
@@ -302,7 +305,7 @@ _oref_free(
  * Also resolves an idb_token as a side effect.
  */
 
-intgen_t
+int
 oref_resolve(
 	invt_oref_t	*invidx,
 	inv_predicate_t bywhat,
@@ -314,7 +317,7 @@ oref_resolve(
 	invt_oref_t	*stobj;
 	int		index;
 
-	ASSERT(! OREF_ISRESOLVED(invidx, INVT_OTYPE_MASK));
+	assert(! OREF_ISRESOLVED(invidx, INVT_OTYPE_MASK));
 	
 	OREF_SET_TYPE(invidx, INVT_OTYPE_INVIDX);
 
@@ -358,7 +361,7 @@ oref_resolve(
 	/* create another storage object ( and, an inv_index entry for it 
 	   too ) if we've filled this one up */
 	if (OREF_CNT_CURNUM(stobj) >= OREF_CNT_MAXNUM(stobj)) {
-		intgen_t 	rval;
+		int 	rval;
 #ifdef INVT_DEBUG
 		mlog( MLOG_DEBUG | MLOG_INV, "$ INV: creating a new storage obj & "
 		      "index entry. \n" );
@@ -387,13 +390,13 @@ oref_resolve(
  * Resolve the invidx entirely, and open the StObj.
  * Invidx is kept locked by caller
  */
-intgen_t
+int
 oref_resolve_child(
 	invt_oref_t 	*invidx,
 	int		*index)
 {
 	invt_entry_t 	*ent;
-	ASSERT(OREF_IS_LOCKED(invidx));
+	assert(OREF_IS_LOCKED(invidx));
 
 	if (oref_resolve_upto(invidx, INVT_RES_ENTRIES) == INV_ERR)	
 		return INV_ERR;
@@ -402,8 +405,8 @@ oref_resolve_child(
 	
 	/* at this point we know that there should be at least one invindex
 	   entry present */
-	ASSERT ( ent != NULL );	
-	ASSERT ( ent->ie_filename );
+	assert ( ent != NULL );	
+	assert ( ent->ie_filename );
 
 	fd = open( ent->ie_filename, O_RDWR );
 	if ( fd < 0 ) {
@@ -421,7 +424,7 @@ oref_resolve_child(
 
 
 /* used to be idx_create */
-intgen_t
+int
 oref_resolve_new_invidx(
 	invt_oref_t 	*invidx,
 	char		*fname)
@@ -451,7 +454,7 @@ oref_resolve_new_invidx(
 
 
 /* formerly idx_create_entry() */
-intgen_t
+int
 oref_resolve_new_stobj(
 	invt_oref_t	*invidx,
 	bool_t		firstentry)
@@ -462,7 +465,7 @@ oref_resolve_new_stobj(
 	invt_oref_t	*stobj;
 	inv_idbtoken_t	tok;
 
-	ASSERT(OREF_ISLOCKED(invidx));
+	assert(OREF_ISLOCKED(invidx));
 
 	memset ( &ent, 0, sizeof( ent ) );
 	stobj = calloc(1, sizeof(invt_oref_t));

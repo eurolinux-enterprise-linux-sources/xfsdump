@@ -29,6 +29,7 @@
  * the 64 inos beginning with the starting ino. two bits are available
  * for each ino.
  */
+struct xfs_bstat;
 
 /* inomap_build - this function allocates and constructs an in-memory
  * representation of the bitmap. it prunes from the map inos of files not
@@ -46,9 +47,9 @@
  * fall at file boundaries. returns BOOL_FALSE if error encountered (should
  * abort the dump; else returns BOOL_TRUE.
  */
-extern bool_t inomap_build( jdm_fshandle_t *fshandlep,
-			    intgen_t fsfd,
-			    xfs_bstat_t *rootstatp,
+extern bool_t inomap_build( void *fshandlep,
+			    int fsfd,
+			    struct xfs_bstat *rootstatp,
 			    bool_t last,
 	      		    time32_t lasttime,
 			    bool_t resume,
@@ -65,7 +66,7 @@ extern bool_t inomap_build( jdm_fshandle_t *fshandlep,
 			    size64_t statcnt,
 			    size64_t *statdonep );
 
-extern u_int64_t inomap_getsz( void );
+extern uint64_t inomap_getsz( void );
 
 /* inomap_skip - tell inomap about inodes to skip in the dump
  */
@@ -103,9 +104,9 @@ extern rv_t inomap_dump( drive_t *drivep );
  */
 struct seg {
 	xfs_ino_t base;
-	u_int64_t lobits;
-	u_int64_t mebits;
-	u_int64_t hibits;
+	uint64_t lobits;
+	uint64_t mebits;
+	uint64_t hibits;
 };
 
 typedef struct seg seg_t;
@@ -131,8 +132,8 @@ typedef struct hnk hnk_t;
 extern void *inomap_alloc_context( void );
 extern void inomap_reset_context( void *contextp );
 extern void inomap_free_context( void *contextp );
-extern intgen_t inomap_get_state( void *contextp, xfs_ino_t ino );
-extern intgen_t inomap_get_gen( void *contextp, xfs_ino_t ino, gen_t *gen );
+extern int inomap_get_state( void *contextp, xfs_ino_t ino );
+extern int inomap_get_gen( void *contextp, xfs_ino_t ino, gen_t *gen );
 
 
 /* generators returning the next dir or non-dir ino selected in this dump.

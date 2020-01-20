@@ -16,9 +16,8 @@
  * Inc.,  51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
-#include <xfs/xfs.h>
-#include <xfs/jdm.h>
-
+#include <unistd.h>
+#include <stdlib.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/mman.h>
@@ -34,10 +33,17 @@
 #include <utime.h>
 #include <malloc.h>
 #include <pthread.h>
+#include <assert.h>
+#include <string.h>
+#include <uuid/uuid.h>
+#include <xfs/xfs.h>
+#include <xfs/jdm.h>	/* only for util.h */
+
+#include "config.h"
 
 #include "types.h"
 #include "timeutil.h"
-#include "util.h"
+#include "util.h"	/* only for r/w routines, ALIGN_PTR */
 #include "cldmgr.h"
 #include "qlock.h"
 #include "lock.h"
@@ -210,7 +216,7 @@ struct pers_file {
 		/* no non-dirs are needed from this nmedia file (due to
 		 * subtree or interactive selections)
 		 */
-	intgen_t f_flags;
+	int f_flags;
 		/* mark terminators and inventories
 		 */
 	bool_t f_underheadpr;
@@ -360,8 +366,8 @@ typedef struct partial_rest partial_rest_t;
 struct stream_context {
 	bstat_t    sc_bstat;
 	char       sc_path[2 * MAXPATHLEN];
-	intgen_t   sc_fd;
-	intgen_t   sc_hsmflags;
+	int   sc_fd;
+	int   sc_hsmflags;
 
 	/*
 	 * we have to set the owner before we set extended attributes otherwise
@@ -520,10 +526,10 @@ struct pers {
 			/* the following stats are not valid until the
 			 * first media file header has been read.
 			 */
-		u_int64_t stat_inocnt;
+		uint64_t stat_inocnt;
 			/* number of non-dir inos to restore during session
 			 */
-		u_int64_t stat_inodone;
+		uint64_t stat_inodone;
 			/* number of non-dir inos restored so far
 			 */
 		off64_t stat_datacnt;
@@ -634,7 +640,7 @@ struct tran {
 	char *t_hkdir;
 		/* absolute pathname of housekeeping directory
 		 */
-	intgen_t t_persfd;
+	int t_persfd;
 		/* file descriptor of the persistent state file
 		 */
 	size64_t t_dirdumps;
@@ -787,7 +793,7 @@ static bool_t restore_reg( drive_t *drivep,
 static bool_t restore_extent_group( drive_t *drivep,
 				    filehdr_t *fhdrp,
 				    char *path,
-				    intgen_t fd,
+				    int fd,
 				    bool_t ehcs,
 				    rv_t *rvp);
 static bool_t restore_complete_reg( stream_context_t* );
@@ -819,9 +825,9 @@ static void addobj( bag_t *bagp,
 static size_t cntobj( bag_t *bagp );
 static bool_t gapneeded( egrp_t *firstegrpp, egrp_t *lastegrpp );
 static char * ehdr_typestr( int32_t type );
-static intgen_t egrpcmp( egrp_t *egrpap, egrp_t *egrpbp );
+static int egrpcmp( egrp_t *egrpap, egrp_t *egrpbp );
 static void display_dump_label( bool_t lockpr,
-				intgen_t mllevel,
+				int mllevel,
 				char *introstr,
 				global_hdr_t *grhdrp,
 				media_hdr_t *mrhdrp,
@@ -877,7 +883,7 @@ static bool_t mcflag[ STREAM_SIMMAX ]; /* media change flag */
 /* definition of locally defined global functions ****************************/
 
 bool_t
-content_init( intgen_t argc, char *argv[ ], size64_t vmsz )
+content_init( int argc, char *argv[ ], size64_t vmsz )
 {
 	char *dstdir;	/* abs. path to destination dir */
 	bool_t cumpr;	/* cmd line cumulative restore specification */
@@ -900,9 +906,9 @@ content_init( intgen_t argc, char *argv[ ], size64_t vmsz )
 	ix_t descpgcnt; /* pages allocated for persistent descriptors */
 	struct stat statbuf;
 	pid_t pid;
-	intgen_t c;
+	int c;
 	bool_t ok;
-	intgen_t rval;
+	int rval;
 	bool_t fullpr;
 
 	/* Calculate the size needed for the persistent inventory 
@@ -912,14 +918,14 @@ content_init( intgen_t argc, char *argv[ ], size64_t vmsz )
 
 	/* sanity checks
 	 */
-	ASSERT( sizeof( pers_desc_t ) <= PERS_DESCSZ );
-	ASSERT( PERS_DESCSZ <= pgsz );
-	ASSERT( ! ( pgsz % PERS_DESCSZ ));
-	ASSERT( sizeof( extattrhdr_t ) == EXTATTRHDR_SZ );
+	assert( sizeof( pers_desc_t ) <= PERS_DESCSZ );
+	assert( PERS_DESCSZ <= pgsz );
+	assert( ! ( pgsz % PERS_DESCSZ ));
+	assert( sizeof( extattrhdr_t ) == EXTATTRHDR_SZ );
 
-	ASSERT( ! ( perssz % pgsz ));
+	assert( ! ( perssz % pgsz ));
 
-	ASSERT( SYNC_INIT == 0 );
+	assert( SYNC_INIT == 0 );
 
 	mlog( MLOG_NITTY,
 	      "sizeof( pers_desc_t ) == %d, pgsz == %d, perssz == %d \n",
@@ -928,7 +934,7 @@ content_init( intgen_t argc, char *argv[ ], size64_t vmsz )
 	/* allocate transient state
 	 */
 	tranp = ( tran_t * )calloc( 1, sizeof( tran_t ));
-	ASSERT( tranp );
+	assert( tranp );
 
 	/* allocate a qlock for establishing pi critical regions
 	 */
@@ -1208,7 +1214,7 @@ content_init( intgen_t argc, char *argv[ ], size64_t vmsz )
 	/* assume all streams contain a directory dump. streams will remove
 	 * themselves from this bitset if they do not contain a directory dump.
 	 */
-	ASSERT( drivecnt <= sizeof(tranp->t_dirdumps) * NBBY );
+	assert( drivecnt <= sizeof(tranp->t_dirdumps) * NBBY );
 	tranp->t_dirdumps = ( 1ULL << drivecnt ) - 1;
 
 	/* the user may specify stdin as the restore source stream,
@@ -1329,7 +1335,7 @@ content_init( intgen_t argc, char *argv[ ], size64_t vmsz )
 
 	/* build a full pathname to pers. state file
 	 */
-	ASSERT( ! perspath );
+	assert( ! perspath );
 	perspath = open_pathalloc( tranp->t_hkdir, persname, 0 );
 
 	/* open, creating if non-existent
@@ -1593,14 +1599,14 @@ content_init( intgen_t argc, char *argv[ ], size64_t vmsz )
 		char *path1;
 		char *path2;
 		rv_t rv;
-		intgen_t rval;
+		int rval;
 
 		path1 = ( char * )calloc( 1, 2 * MAXPATHLEN );
-		ASSERT( path1 );
+		assert( path1 );
 		path2 = ( char * )calloc( 1, 2 * MAXPATHLEN );
-		ASSERT( path2 );
-		ASSERT( persp->a.valpr );
-		ASSERT( persp->s.valpr );
+		assert( path2 );
+		assert( persp->a.valpr );
+		assert( persp->s.valpr );
 		rval = chdir( persp->a.dstdir );
 		if ( rval ) {
 			mlog( MLOG_NORMAL, _(
@@ -1609,11 +1615,11 @@ content_init( intgen_t argc, char *argv[ ], size64_t vmsz )
 			      strerror( errno ));
 			return BOOL_FALSE;
 		}
-		ok = dirattr_init( tranp->t_hkdir, BOOL_TRUE, ( u_int64_t )0 );
+		ok = dirattr_init( tranp->t_hkdir, BOOL_TRUE, ( uint64_t )0 );
 		if ( ! ok ) {
 			return BOOL_FALSE;
 		}
-		ok = namreg_init( tranp->t_hkdir, BOOL_TRUE, ( u_int64_t )0 );
+		ok = namreg_init( tranp->t_hkdir, BOOL_TRUE, ( uint64_t )0 );
 		if ( ! ok ) {
 			return BOOL_FALSE;
 		}
@@ -1673,7 +1679,7 @@ content_init( intgen_t argc, char *argv[ ], size64_t vmsz )
 		stpgcnt = persp->a.stpgcnt;
 		newstpgcnt = stpgcnt;
 		descpgcnt = persp->s.descpgcnt;
-		ASSERT( resumepr );
+		assert( resumepr );
 		mlog( MLOG_VERBOSE, _(
 		      "resuming restore previously begun %s\n"),
 		      ctimennl( &persp->s.begintime ));
@@ -1683,13 +1689,13 @@ content_init( intgen_t argc, char *argv[ ], size64_t vmsz )
 	/* unmap temp mapping of hdr, truncate, and remap hdr/subtrees
 	 */
 	rval = munmap( ( void * )persp, perssz );
-	ASSERT( ! rval );
+	assert( ! rval );
 	rval = ftruncate( tranp->t_persfd, ( off_t )perssz
 					   +
 					   ( off_t )( stpgcnt + descpgcnt )
 					   *
 					   ( off_t )pgsz );
-	ASSERT( ! rval );
+	assert( ! rval );
 	stpgcnt = newstpgcnt;
 	persp = ( pers_t * ) mmap_autogrow( perssz + stpgcnt * pgsz,
 				   tranp->t_persfd, 0);
@@ -1756,7 +1762,7 @@ content_init( intgen_t argc, char *argv[ ], size64_t vmsz )
 					+
 					( STDESCALIGN - 1 );
 				stdsz &= ~( STDESCALIGN - 1 );
-				ASSERT( stdsz <= ( size_t )OFFMAX );
+				assert( stdsz <= ( size_t )OFFMAX );
 				stdescp->std_nextoff = ( off_t )stdsz;
 				strcpy( stdescp->std_path, optarg );
 				stdescp = ( stdesc_t * )
@@ -1765,7 +1771,7 @@ content_init( intgen_t argc, char *argv[ ], size64_t vmsz )
 				break;
 			}
 		}
-		ASSERT( stcnt == 0 );
+		assert( stcnt == 0 );
 	}
 
 	/* initialize the local extattr abstraction. must be done even if
@@ -1801,7 +1807,7 @@ content_init( intgen_t argc, char *argv[ ], size64_t vmsz )
 	 * referenced ONLY via the macros provided; the descriptors will be
 	 * occasionally remapped, causing the ptr to change.
 	 */
-	ASSERT( ! descp );
+	assert( ! descp );
 	if ( descpgcnt ) {
 		descp = ( pers_desc_t * ) mmap_autogrow( descpgcnt * pgsz,
 						tranp->t_persfd,
@@ -1835,7 +1841,7 @@ content_init( intgen_t argc, char *argv[ ], size64_t vmsz )
 	 * determine if full init needed instead.
 	 */
 	if ( persp->a.valpr && persp->s.valpr ) {
-		ok = dirattr_init( tranp->t_hkdir, BOOL_TRUE, ( u_int64_t )0 );
+		ok = dirattr_init( tranp->t_hkdir, BOOL_TRUE, ( uint64_t )0 );
 		if ( ! ok ) {
 			return BOOL_FALSE;
 		}
@@ -1847,7 +1853,7 @@ content_init( intgen_t argc, char *argv[ ], size64_t vmsz )
 	 * determine if full init needed instead.
 	 */
 	if ( persp->a.valpr ) {
-		ok = namreg_init( tranp->t_hkdir, BOOL_TRUE, ( u_int64_t )0 );
+		ok = namreg_init( tranp->t_hkdir, BOOL_TRUE, ( uint64_t )0 );
 		if ( ! ok ) {
 			return BOOL_FALSE;
 		}
@@ -1908,7 +1914,7 @@ content_init( intgen_t argc, char *argv[ ], size64_t vmsz )
 
 /* stream thread entry point - returns exit code
  */
-intgen_t
+int
 content_stream_restore( ix_t thrdix )
 {
 	dh_t fileh;
@@ -1916,7 +1922,7 @@ content_stream_restore( ix_t thrdix )
 	char *path1;
 	char *path2;
 	drive_t *drivep;
-	intgen_t dcaps;
+	int dcaps;
 	global_hdr_t *grhdrp;
 	drive_hdr_t *drhdrp;
 	media_hdr_t *mrhdrp;
@@ -1927,14 +1933,14 @@ content_stream_restore( ix_t thrdix )
 	uuid_t lastdumprejectedid;
 	rv_t rv;
 	bool_t ok;
-	intgen_t rval;
+	int rval;
 
 	/* allocate two path buffers
 	 */
 	path1 = ( char * )calloc( 1, 2 * MAXPATHLEN );
-	ASSERT( path1 );
+	assert( path1 );
 	path2 = ( char * )calloc( 1, 2 * MAXPATHLEN );
-	ASSERT( path2 );
+	assert( path2 );
 
 	/* set the current directory to dstdir. the tree abstraction
 	 * depends on the current directory being the root of the
@@ -2081,7 +2087,7 @@ content_stream_restore( ix_t thrdix )
 		      "dump found: checking\n" );
 		matchpr = BOOL_FALSE;
 		resumepr = ( scrhdrp->cih_dumpattr & CIH_DUMPATTR_RESUME );
-		ASSERT( scrhdrp->cih_level >= 0 );
+		assert( scrhdrp->cih_level >= 0 );
 		level = ( ix_t )scrhdrp->cih_level;
 		baseidp = resumepr
 			  ?
@@ -2179,8 +2185,9 @@ content_stream_restore( ix_t thrdix )
 		if ( ! drivep->d_isnamedpipepr
 		     &&
 		     ! drivep->d_isunnamedpipepr ) {
-			ok = inv_get_session_byuuid( &grhdrp->gh_dumpid,
-						     &sessp );
+			ok = inv_get_session_byuuid(NULL,
+						    &grhdrp->gh_dumpid,
+						    &sessp);
 			if ( ok && sessp ) {
 				mlog( MLOG_VERBOSE, _(
 				      "using online session inventory\n") );
@@ -2245,7 +2252,7 @@ content_stream_restore( ix_t thrdix )
 			return mlog_exit(EXIT_FAULT, rv);
 		}
 		dcaps = drivep->d_capabilities;
-		ASSERT( fileh != DH_NULL );
+		assert( fileh != DH_NULL );
 		lock( );
 		if ( tranp->t_sync3 == SYNC_BUSY ) {
 			unlock( );
@@ -2258,7 +2265,7 @@ content_stream_restore( ix_t thrdix )
 #if DEBUG_DUMPSTREAMS
 			{
 			    static int count[STREAM_MAX] = {0};
-			    intgen_t streamix = stream_getix( pthread_self() );
+			    int streamix = stream_getix( pthread_self() );
 			    if (++(count[streamix]) == 30) {
 				mlog( MLOG_TRACE,
 					"still waiting for dirs to be restored\n");
@@ -2430,7 +2437,7 @@ content_stream_restore( ix_t thrdix )
 #if DEBUG_DUMPSTREAMS
 			{
 			static int count[STREAM_MAX] = {0};
-			intgen_t streamix = stream_getix( pthread_self() );
+			int streamix = stream_getix( pthread_self() );
 			    if (++(count[streamix]) == 30) {
 				mlog( MLOG_NORMAL,
 				      "still waiting for dirs post-processing\n");
@@ -2528,7 +2535,7 @@ content_stream_restore( ix_t thrdix )
 			return mlog_exit(EXIT_FAULT, rv);
 		}
 		dcaps = drivep->d_capabilities;
-		ASSERT( fileh > DH_NULL );
+		assert( fileh > DH_NULL );
 		if ( tranp->t_toconlypr ) {
 			mlog( MLOG_VERBOSE, _(
 			      "reading non-directory files\n") );
@@ -2751,7 +2758,7 @@ content_statline( char **linespp[ ] )
 			 percent,
 			 (unsigned long long)tranp->t_direntcnt,
 			 elapsed );
-		ASSERT( strlen( statline[ 0 ] ) < STATLINESZ );
+		assert( strlen( statline[ 0 ] ) < STATLINESZ );
 		
 		return 1;
 	}
@@ -2791,7 +2798,7 @@ content_statline( char **linespp[ ] )
 		 (unsigned long long)inocnt,
 		 percent,
 		 elapsed );
-	ASSERT( strlen( statline[ 0 ] ) < STATLINESZ );
+	assert( strlen( statline[ 0 ] ) < STATLINESZ );
 	
 	/* return buffer to caller
 	 */
@@ -2879,7 +2886,7 @@ content_mediachange_query( void )
 	}
 	nochangeix = choicecnt;
 	choicestr[ choicecnt++ ] = _("continue");
-	ASSERT( choicecnt <= CHOICEMAX );
+	assert( choicecnt <= CHOICEMAX );
 	responseix = dlog_multi_query( querystr,
 				       querycnt,
 				       choicestr,
@@ -2919,7 +2926,7 @@ content_mediachange_query( void )
 		choicecnt = 0;
 		nochangeix = choicecnt;
 		choicestr[ choicecnt++ ] = _("continue");
-		ASSERT( choicecnt <= CHOICEMAX );
+		assert( choicecnt <= CHOICEMAX );
 		responseix = dlog_multi_query( querystr,
 					       querycnt,
 					       choicestr,
@@ -2935,7 +2942,7 @@ content_mediachange_query( void )
 					       nochangeix);/* sigquit ix */
 		return _("continuing\n");
 	}
-	ASSERT( responseix == nochangeix );
+	assert( responseix == nochangeix );
 	return _("continuing\n");
 }
 
@@ -3105,7 +3112,7 @@ applydirdump( drive_t *drivep,
 					break;
 				}
 				namelen = strlen( dhdrp->dh_name );
-				ASSERT( namelen <= NAME_MAX );
+				assert( namelen <= NAME_MAX );
 
 				/* add this dirent to the tree.
 				 */
@@ -3262,7 +3269,7 @@ eatdirdump( drive_t *drivep,
 				break;
 			}
 			namelen = strlen( dhdrp->dh_name );
-			ASSERT( namelen <= NAME_MAX );
+			assert( namelen <= NAME_MAX );
 		}
 	}
 
@@ -3446,7 +3453,7 @@ applynondirdump( drive_t *drivep,
 		drive_mark_t drivemark;
 		bstat_t *bstatp = &fhdrp->fh_stat;
 		bool_t resyncpr = BOOL_FALSE;
-		intgen_t rval;
+		int rval;
 
 		/* if a null file header, break
 		 */
@@ -3524,7 +3531,7 @@ applynondirdump( drive_t *drivep,
 				if ( cur_egrp.eg_ino < next_egrp.eg_ino
 				     ||
 				     next_egrp.eg_off > 0 ) {
-					ASSERT( cur_egrp.eg_ino
+					assert( cur_egrp.eg_ino
 						<=
 						next_egrp.eg_ino );
 					pi_update_stats( bstatp->bs_blocks
@@ -3694,7 +3701,7 @@ wipepersstate( void )
 
 	while ( ( direntp = readdir64( dirp )) != 0 ) {
 		/* REFERENCED */
-		intgen_t len;
+		int len;
 		if ( ! strcmp( direntp->d_name, "." )) {
 			continue;
 		}
@@ -3705,8 +3712,8 @@ wipepersstate( void )
 			       "%s/%s",
 			       tranp->t_hkdir,
 			       direntp->d_name );
-		ASSERT( len > 0 );
-		ASSERT( len < MAXPATHLEN );
+		assert( len > 0 );
+		assert( len < MAXPATHLEN );
 		( void )unlink( pathname );
 		closedir( dirp );
 		dirp = opendir( tranp->t_hkdir );
@@ -3731,14 +3738,14 @@ Inv_validate_cmdline( void )
 	bool_t ok;
 	bool_t rok;
 
-	ASSERT( ! persp->s.valpr );
+	assert( ! persp->s.valpr );
 
 	ok = BOOL_FALSE;
 	sessp = 0;
 	if ( tranp->t_reqdumpidvalpr ) {
-		ok = inv_get_session_byuuid( &tranp->t_reqdumpid, &sessp );
+		ok = inv_get_session_byuuid(NULL, &tranp->t_reqdumpid, &sessp);
 	} else if ( tranp->t_reqdumplabvalpr ) {
-		ok = inv_get_session_bylabel( tranp->t_reqdumplab, &sessp );
+		ok = inv_get_session_bylabel(NULL, tranp->t_reqdumplab, &sessp);
 	}
 	rok = BOOL_FALSE;
 	if ( ok && sessp ) {
@@ -3796,7 +3803,7 @@ Media_create( ix_t thrdix )
 	Mediap->M_mrhdrp = mrhdrp;
 	Mediap->M_crhdrp = crhdrp;
 	Mediap->M_scrhdrp = scrhdrp;
-	ASSERT( POS_UNKN == 0 );
+	assert( POS_UNKN == 0 );
 
 	return Mediap;
 }
@@ -3863,7 +3870,7 @@ Media_mfile_next( Media_t *Mediap,
 	content_hdr_t *crhdrp = Mediap->M_crhdrp;
 	content_inode_hdr_t *scrhdrp = Mediap->M_scrhdrp;
 	dh_t fileh;
-	intgen_t rval = 0; /* no error by default */
+	int rval = 0; /* no error by default */
 	rv_t rv;
 	bool_t ok;
 	uuid_t prevmfiledumpid;
@@ -3942,7 +3949,7 @@ Media_mfile_next( Media_t *Mediap,
 		bool_t maybeholespr;
 		xfs_ino_t begino;
 		xfs_ino_t endino;
-		intgen_t dcaps = drivep->d_capabilities;
+		int dcaps = drivep->d_capabilities;
 		dh_t objh = DH_NULL;
 
 		emptypr = BOOL_FALSE;
@@ -4078,7 +4085,7 @@ Media_mfile_next( Media_t *Mediap,
 		case DRIVE_ERROR_EOD:
 			Mediap->M_pos = POS_END;
 			if ( Mediap->M_fsfixvalpr ) {
-				ASSERT( purp != PURP_SEARCH );
+				assert( purp != PURP_SEARCH );
 				pi_hiteod( Mediap->M_fssix,
 					   Mediap->M_fsoix );
 			}
@@ -4086,7 +4093,7 @@ Media_mfile_next( Media_t *Mediap,
 		case DRIVE_ERROR_EOM:
 			Mediap->M_pos = POS_END;
 			if ( Mediap->M_fsfixvalpr ) {
-				ASSERT( purp != PURP_SEARCH );
+				assert( purp != PURP_SEARCH );
 				pi_hiteom( Mediap->M_fssix,
 					   Mediap->M_fsoix );
 			}
@@ -4205,7 +4212,7 @@ validate:
 		/* if the purpose is to search, return this media file
 		 */
 		if ( purp == PURP_SEARCH ) {
-			ASSERT( Mediap->M_pos == POS_ATHDR );
+			assert( Mediap->M_pos == POS_ATHDR );
 			return RV_OK;
 		}
 
@@ -4456,9 +4463,9 @@ validate:
 		/* if the purpose is dir, give it to the caller
 		 */
 		if ( purp == PURP_DIR ) {
-			ASSERT( Mediap->M_pos == POS_ATHDR );
+			assert( Mediap->M_pos == POS_ATHDR );
 			if ( filehp ) {
-				ASSERT( fileh != DH_NULL );
+				assert( fileh != DH_NULL );
 				*filehp = fileh;
 			}
 			return RV_OK;
@@ -4470,9 +4477,9 @@ validate:
 
 		/* see if this media file contains any inodes not yet restored
 		 */
-		ASSERT( fileh != DH_NULL );
+		assert( fileh != DH_NULL );
 		pi_lock( );
-		ASSERT( DH2F( fileh )->f_valpr );
+		assert( DH2F( fileh )->f_valpr );
 		begino = DH2F( fileh )->f_curegrp.eg_ino;
 		endino = pi_scanfileendino( fileh );
 		hassomepr = inomap_rst_needed( begino, endino );
@@ -4531,8 +4538,8 @@ validate:
 		 * and no check point, can still get there
 		 * by doing dummy read of dirdump.
 		 */
-		ASSERT( fileh != DH_NULL );
-		ASSERT( DH2F( fileh )->f_valpr );
+		assert( fileh != DH_NULL );
+		assert( DH2F( fileh )->f_valpr );
 		resumepr = ( ( DH2F( fileh )->f_firstegrp.eg_ino
 			       !=
 			       DH2F( fileh )->f_curegrp.eg_ino )
@@ -4615,7 +4622,7 @@ validate:
 			rval = 0;
 			break;
 		default:
-		    ASSERT( 0 );
+		    assert( 0 );
 		    rval = 1;
 		    break;
 		}
@@ -4633,7 +4640,7 @@ validate:
 		 */
 		if ( ! rval ) {
 			if ( filehp ) {
-				ASSERT( fileh != DH_NULL );
+				assert( fileh != DH_NULL );
 				*filehp = fileh;
 			}
 			return RV_OK;
@@ -4646,7 +4653,7 @@ validate:
 		( * dop->do_end_read )( drivep );
 		Mediap->M_pos = POS_UNKN;
 		fileh = DH_NULL;
-		ASSERT( purp == PURP_NONDIR );
+		assert( purp == PURP_NONDIR );
 		if ( pi_know_no_more_beyond_on_object( purp,
 						       Mediap->M_fssix,
 						       Mediap->M_fsoix,
@@ -4734,7 +4741,7 @@ newmedia:
 							   BOOL_FALSE );
 			break;
 		default:
-			ASSERT( 0 );
+			assert( 0 );
 		}
 
 		if ( ! bagp && ! knownholespr && ! maybeholespr ) {
@@ -4748,7 +4755,7 @@ newmedia:
 		/* eject media if drive not already empty
 		 */
 		if ( ! emptypr ) {
-			intgen_t dcaps = drivep->d_capabilities;
+			int dcaps = drivep->d_capabilities;
 			if ( purp == PURP_SEARCH ) {
 				if ( Mediap->M_pos == POS_USELESS ) {
 					mlog( MLOG_VERBOSE | MLOG_MEDIA, _(
@@ -4795,7 +4802,7 @@ newmedia:
 					pi_neededobjs_free( bagp );
 					bagp = 0;
 				}
-				ASSERT( sistr );
+				assert( sistr );
 				mlog( MLOG_NORMAL | MLOG_NOTE | MLOG_MEDIA, _(
 				      "please change media: "
 				      "type %s to confirm media change\n"),
@@ -4922,24 +4929,24 @@ pi_allocdesc( dh_t *deschp )
 		ix_t descppg = pgsz / PERS_DESCSZ;
 		ix_t descix;
 		/* REFERENCED */
-		intgen_t rval;
+		int rval;
 
 		/* first unmap if any existing descriptors
 		 */
 		if ( descp ) {
-			ASSERT( olddescpgcnt > 0 );
+			assert( olddescpgcnt > 0 );
 			rval = munmap( ( void * )descp,
 				       olddescpgcnt * pgsz );
-			ASSERT( ! rval );
+			assert( ! rval );
 			descp = 0;
 		} else {
-			ASSERT( olddescpgcnt == 0 );
+			assert( olddescpgcnt == 0 );
 		}
 
 		/* remap with DAU more pages of descriptors
 		 */
-		ASSERT( stpgcnt <= ( ix_t )INTGENMAX );
-		ASSERT( newdescpgcnt > 0 );
+		assert( stpgcnt <= ( ix_t )INTGENMAX );
+		assert( newdescpgcnt > 0 );
 		descp = ( pers_desc_t * ) mmap_autogrow( newdescpgcnt * pgsz,
 						tranp->t_persfd,
 						( off_t )perssz
@@ -4972,7 +4979,7 @@ pi_allocdesc( dh_t *deschp )
 	desch = persp->s.descfreeh;
 	persp->s.descfreeh = DH2D( desch )->d_nexth;
 	memset( ( void * )DH2D( desch ), 0, sizeof( pers_desc_t ));
-	ASSERT( desch != DH_NULL );
+	assert( desch != DH_NULL );
 	*deschp = desch;
 	return BOOL_TRUE;
 }
@@ -5000,7 +5007,7 @@ pi_insertfile( ix_t drivecnt,
 	       bool_t egrpvalpr,
 	       xfs_ino_t startino,
 	       off64_t startoffset,
-	       intgen_t flags,
+	       int flags,
 	       bool_t fileszvalpr,
 	       off64_t filesz )
 {
@@ -5040,7 +5047,7 @@ pi_insertfile( ix_t drivecnt,
 	      strmix++,
 	      strmh = DH2S( strmh )->s_nexth )
 		;
-	ASSERT( strmh != DH_NULL );
+	assert( strmh != DH_NULL );
 
 	/* get handle to this object by walking/constructing this stream's
 	 * object list, up to the desired object
@@ -5123,10 +5130,10 @@ pi_insertfile( ix_t drivecnt,
 	     &&
 	     ! DH2O( prevobjh )->o_lmfknwnpr ) {
 		size_t prevmfcnt;
-		ASSERT( DH2O( objh )->o_fmfsix > DH2O( prevobjh )->o_fmfsix );
+		assert( DH2O( objh )->o_fmfsix > DH2O( prevobjh )->o_fmfsix );
 		prevmfcnt = DH2O( objh )->o_fmfsix - DH2O( prevobjh )->o_fmfsix;
 		pi_unlock( );
-		ASSERT( mediaix > 0 );
+		assert( mediaix > 0 );
 		( void )pi_insertfile( drivecnt,
 				       driveix,
 				       mediaix - 1,
@@ -5189,8 +5196,8 @@ pi_insertfile( ix_t drivecnt,
 	/* update the media file fields not yet valid
 	 */
 	if ( egrpvalpr && ! DH2F( fileh )->f_valpr ) {
-		ASSERT( ! ( DH2F( fileh )->f_flags & PF_INV ));
-		ASSERT( ! ( DH2F( fileh )->f_flags & PF_TERM ));
+		assert( ! ( DH2F( fileh )->f_flags & PF_INV ));
+		assert( ! ( DH2F( fileh )->f_flags & PF_TERM ));
 		DH2F( fileh )->f_firstegrp.eg_ino = startino;
 		DH2F( fileh )->f_firstegrp.eg_off = startoffset;
 		DH2F( fileh )->f_curegrp = DH2F( fileh )->f_firstegrp;
@@ -5232,7 +5239,7 @@ pi_addfile( Media_t *Mediap,
 	if ( ! persp->s.stat_valpr ) {
 		persp->s.stat_inocnt = scrhdrp->cih_inomap_nondircnt;
 		persp->s.stat_inodone = 0;
-		ASSERT( scrhdrp->cih_inomap_datasz <= OFF64MAX );
+		assert( scrhdrp->cih_inomap_datasz <= OFF64MAX );
 		persp->s.stat_datacnt = ( off64_t )scrhdrp->cih_inomap_datasz;
 		persp->s.stat_datadone = 0;
 		persp->s.stat_valpr = BOOL_TRUE;
@@ -5300,7 +5307,7 @@ pi_addfile( Media_t *Mediap,
 		if ( fileh == DH_NULL ) {
 			return DH_NULL;
 		}
-		ASSERT( drhdrp->dh_drivecnt > 0 );
+		assert( drhdrp->dh_drivecnt > 0 );
 		if ( drhdrp->dh_driveix < drhdrp->dh_drivecnt - 1 ) {
 			/* if this is not in the last stream, we know
 			 * there is at least one other media file in
@@ -5421,9 +5428,9 @@ pi_addfile( Media_t *Mediap,
 			Mediap->M_pos = POS_ATNONDIR;
 			donepr = BOOL_FALSE;
 			while ( ! donepr ) {
-				intgen_t nread;
+				int nread;
 				drive_ops_t *dop = drivep->d_opsp;
-				intgen_t rval = 0;
+				int rval = 0;
 				nread = read_buf( bufp + buflen,
 						  bufszincr,
 						  ( void * )drivep,
@@ -5432,12 +5439,12 @@ pi_addfile( Media_t *Mediap,
 						  &rval );
 				switch( rval ) {
 				case 0:
-					ASSERT( nread == ( intgen_t )bufszincr );
+					assert( nread == ( int )bufszincr );
 					buflen += ( size_t )nread;
 					bufsz += bufszincr;
 					bufp = ( char * )realloc(( void * )bufp,
 								 bufsz );
-					ASSERT( bufp );
+					assert( bufp );
 					continue;
 				case DRIVE_ERROR_EOD:
 				case DRIVE_ERROR_EOF:
@@ -5494,7 +5501,7 @@ pi_addfile( Media_t *Mediap,
 		return fileh;
 	}
 
-	ASSERT( 0 );
+	assert( 0 );
 	return DH_NULL;
 }
 
@@ -5828,7 +5835,7 @@ pi_scanfileendino( dh_t fileh )
 	dh_t strmh;
 	ix_t mode = 0;
 
-	ASSERT( fileh != DH_NULL );
+	assert( fileh != DH_NULL );
 
 	/* traverse the pi tree, looking for the next media file after
 	 */
@@ -5862,13 +5869,13 @@ pi_scanfileendino( dh_t fileh )
 			if ( DH2F( nexth )->f_valpr ) {
 			    xfs_ino_t ino;
 
-			    ASSERT( ! ( DH2F( nexth )->f_flags & PF_INV ));
-			    ASSERT( ! ( DH2F( nexth )->f_flags & PF_TERM ));
+			    assert( ! ( DH2F( nexth )->f_flags & PF_INV ));
+			    assert( ! ( DH2F( nexth )->f_flags & PF_TERM ));
 			    if ( DH2F( nexth )->f_firstegrp.eg_off ) {
 				ino =  DH2F( nexth )->f_firstegrp.eg_ino;
 				return ino;
 			    } else {
-				ASSERT( DH2F( nexth )->f_firstegrp.eg_ino > 0 );
+				assert( DH2F( nexth )->f_firstegrp.eg_ino > 0 );
 				ino =  DH2F( nexth )->f_firstegrp.eg_ino - 1;
 				return ino;
 			    }
@@ -5893,12 +5900,12 @@ pi_bracketneededegrps( dh_t thisfileh, egrp_t *first_egrp, egrp_t *next_egrp )
 	dh_t follh = DH_NULL;
 
 
-	ASSERT( thisfileh != DH_NULL );
+	assert( thisfileh != DH_NULL );
 
 	/* traverse the pi tree, looking for fileh
 	 */
 	pi_lock( );
-	ASSERT( DH2F( thisfileh )->f_valpr );
+	assert( DH2F( thisfileh )->f_valpr );
 
 	for ( strmh = persp->s.strmheadh
 	      ;
@@ -5923,14 +5930,14 @@ pi_bracketneededegrps( dh_t thisfileh, egrp_t *first_egrp, egrp_t *next_egrp )
 			if ( fileh == thisfileh ) {
 			    thisfoundpr = BOOL_TRUE;
 			} else if ( DH2F( fileh )->f_valpr ) {
-			    ASSERT( ! ( DH2F( fileh )->f_flags & PF_INV ));
-			    ASSERT( ! ( DH2F( fileh )->f_flags & PF_TERM ));
+			    assert( ! ( DH2F( fileh )->f_flags & PF_INV ));
+			    assert( ! ( DH2F( fileh )->f_flags & PF_TERM ));
 			    prech = fileh;
 			}
 		    } else if ( DH2F( fileh )->f_valpr ) {
-			ASSERT( ! ( DH2F( fileh )->f_flags & PF_INV ));
-			ASSERT( ! ( DH2F( fileh )->f_flags & PF_TERM ));
-			ASSERT( follh == DH_NULL );
+			assert( ! ( DH2F( fileh )->f_flags & PF_INV ));
+			assert( ! ( DH2F( fileh )->f_flags & PF_TERM ));
+			assert( follh == DH_NULL );
 			follh = fileh;
 			goto done;
 		    }
@@ -5939,7 +5946,7 @@ pi_bracketneededegrps( dh_t thisfileh, egrp_t *first_egrp, egrp_t *next_egrp )
 	}
 done:
 
-	ASSERT( thisfoundpr );
+	assert( thisfoundpr );
 
 	/* initially the lower bracket is this file descriptor's
 	 * current egrp. this catches the case where a previous restore
@@ -5978,7 +5985,7 @@ static void
 pi_update_stats( off64_t sz )
 {
 	pi_lock( );
-	ASSERT( persp->s.stat_valpr );
+	assert( persp->s.stat_valpr );
 	persp->s.stat_inodone++;
 	persp->s.stat_datadone += sz;
 	pi_unlock( );
@@ -6010,7 +6017,7 @@ pi_iter_alloc( void )
 	pi_iter_t *iterp;
 
 	iterp = ( pi_iter_t * )calloc( 1, sizeof( pi_iter_t ));
-	ASSERT( iterp );
+	assert( iterp );
 	return iterp;
 }
 
@@ -6025,7 +6032,7 @@ pi_iter_nextfileh( pi_iter_t *iterp,
 		   bool_t *objmissingprp,
 		   bool_t *filemissingprp )
 {
-	ASSERT( ! iterp->donepr );
+	assert( ! iterp->donepr );
 
 	if ( persp->s.strmheadh == DH_NULL ) {
 		iterp->donepr = BOOL_TRUE;
@@ -6033,7 +6040,7 @@ pi_iter_nextfileh( pi_iter_t *iterp,
 	}
 
 	if ( ! iterp->initializedpr ) {
-		ASSERT( persp->s.strmheadh != DH_NULL );
+		assert( persp->s.strmheadh != DH_NULL );
 		iterp->strmh = persp->s.strmheadh;
 		iterp->objh = DH2S( iterp->strmh )->s_cldh;
 		if ( iterp->objh == DH_NULL ) {
@@ -6129,7 +6136,7 @@ pi_neededobjs_nondir_alloc( bool_t *knownholesprp,
 	bool_t maybeobjmissingpr;
 	bool_t maybefilemissingpr;
 	dh_t lastobjaddedh;
-	intgen_t objlistlen;
+	int objlistlen;
 
 	/* no point in proceeding if pi not begun
 	 */
@@ -6198,8 +6205,8 @@ pi_neededobjs_nondir_alloc( bool_t *knownholesprp,
 			headegrp.eg_ino = INO64MAX;
 			headegrp.eg_off = OFF64MAX;
 		} else {
-			ASSERT( ! ( DH2F( headh )->f_flags & PF_INV ));
-			ASSERT( ! ( DH2F( headh )->f_flags & PF_TERM ));
+			assert( ! ( DH2F( headh )->f_flags & PF_INV ));
+			assert( ! ( DH2F( headh )->f_flags & PF_TERM ));
 			headegrp = DH2F( headh )->f_firstegrp;
 		}
 
@@ -6308,7 +6315,7 @@ pi_neededobjs_dir_alloc( bool_t *knownholesprp, bool_t *maybeholesprp )
 	bool_t maybeobjmissingpr;
 	bool_t maybefilemissingpr;
 	dh_t lastobjaddedh;
-	intgen_t objlistlen;
+	int objlistlen;
 
 	bagp = bag_alloc( );
 	iterp = pi_iter_alloc( );
@@ -6368,15 +6375,15 @@ pi_neededobjs_free( bag_t *bagp )
 	size64_t dummykey;
 	void *dummypayloadp;
 
-	ASSERT( bagp );
+	assert( bagp );
 
 	bagiter_init( bagp, &bagiter );
 
 	bagobjp = 0;
 	while (( bagelemp = bagiter_next( &bagiter, ( void ** )&bagobjp ) )) {
 		bag_remove( bagp, bagelemp, &dummykey, &dummypayloadp );
-		ASSERT( bagobjp );
-		ASSERT( bagobjp == ( bagobj_t * )dummypayloadp );
+		assert( bagobjp );
+		assert( bagobjp == ( bagobj_t * )dummypayloadp );
 		free( ( void * )bagobjp );
 		bagobjp = 0;
 	}
@@ -6440,7 +6447,7 @@ pi_hiteod( ix_t strmix, ix_t objix )
 	      ix++,
 	      strmh = DH2S( strmh )->s_nexth )
 		;
-	ASSERT( strmh != DH_NULL );
+	assert( strmh != DH_NULL );
 
 	/* get index to last object in stream
 	 */
@@ -6450,7 +6457,7 @@ pi_hiteod( ix_t strmix, ix_t objix )
 	      ;
 	      objh = DH2O( objh )->o_nexth, objcnt++ )
 		;
-	ASSERT( objcnt != 0 );
+	assert( objcnt != 0 );
 	lastobjix = objcnt - 1;
 	
 	pi_unlock( );
@@ -6503,7 +6510,7 @@ pi_hitnextdump( ix_t strmix, ix_t objix, ix_t lastfileix )
 	      ix++,
 	      strmh = DH2S( strmh )->s_nexth )
 		;
-	ASSERT( strmh != DH_NULL );
+	assert( strmh != DH_NULL );
 
 	/* get index to last object in stream
 	 */
@@ -6513,7 +6520,7 @@ pi_hitnextdump( ix_t strmix, ix_t objix, ix_t lastfileix )
 	      ;
 	      objh = DH2O( objh )->o_nexth, objcnt++ )
 		;
-	ASSERT( objcnt != 0 );
+	assert( objcnt != 0 );
 	lastobjix = objcnt - 1;
 	
 	pi_unlock( );
@@ -6548,7 +6555,7 @@ pi_know_no_more_on_object( purp_t purp, ix_t strmix, ix_t objix )
 	dh_t objh;
 	dh_t fileh;
 
-	ASSERT( purp == PURP_DIR || purp == PURP_NONDIR );
+	assert( purp == PURP_DIR || purp == PURP_NONDIR );
 
 	pi_lock( );
 
@@ -6562,7 +6569,7 @@ pi_know_no_more_on_object( purp_t purp, ix_t strmix, ix_t objix )
 	      ix++,
 	      strmh = DH2S( strmh )->s_nexth )
 		;
-	ASSERT( strmh != DH_NULL );
+	assert( strmh != DH_NULL );
 
 	/* get handle to indexed object
 	 */
@@ -6573,7 +6580,7 @@ pi_know_no_more_on_object( purp_t purp, ix_t strmix, ix_t objix )
 	      ix++,
 	      objh = DH2O( objh )->o_nexth )
 		;
-	ASSERT( objh != DH_NULL );
+	assert( objh != DH_NULL );
 	
 	/* if don't know last media file on object, return FALSE
 	 */
@@ -6626,7 +6633,7 @@ pi_know_no_more_beyond_on_object( purp_t purp,
 	dh_t objh;
 	dh_t fileh;
 
-	ASSERT( purp == PURP_DIR || purp == PURP_NONDIR );
+	assert( purp == PURP_DIR || purp == PURP_NONDIR );
 
 	pi_lock( );
 
@@ -6640,7 +6647,7 @@ pi_know_no_more_beyond_on_object( purp_t purp,
 	      ix++,
 	      strmh = DH2S( strmh )->s_nexth )
 		;
-	ASSERT( strmh != DH_NULL );
+	assert( strmh != DH_NULL );
 
 	/* get handle to indexed object
 	 */
@@ -6652,7 +6659,7 @@ pi_know_no_more_beyond_on_object( purp_t purp,
 	      ix++,
 	      objh = DH2O( objh )->o_nexth )
 		;
-	ASSERT( objh != DH_NULL );
+	assert( objh != DH_NULL );
 	
 	/* if don't know last media file on object, return FALSE
 	 */
@@ -6740,7 +6747,7 @@ addobj( bag_t *bagp,
 	bagobj_t *bagobjp;
 
 	bagobjp = ( bagobj_t * )calloc( 1, sizeof( bagobj_t ));
-	ASSERT( bagobjp );
+	assert( bagobjp );
 	uuid_copy(bagobjp->id, *idp);
 	strncpy( bagobjp->label,
 		 label,
@@ -6760,7 +6767,7 @@ cntobj( bag_t *bagp )
 	bagobj_t *bagobjp;
 	size_t cnt;
 
-	ASSERT( bagp );
+	assert( bagp );
 
 	bagiter_init( bagp, &bagiter );
 	cnt = 0;
@@ -6812,13 +6819,15 @@ askinvforbaseof( uuid_t baseid, inv_session_t *sessp )
 	/* get the base session
 	 */
 	if ( resumedpr ) {
-		ok = inv_lastsession_level_equalto( invtok,
-						    ( u_char_t )level,
-						    &basesessp );
+		ok = inv_lastsession_level_equalto(&sessp->s_fsid,
+						    invtok,
+						    (u_char_t)level,
+						    &basesessp);
 	} else {
-		ok = inv_lastsession_level_lessthan( invtok,
-						     ( u_char_t )level,
-						     &basesessp );
+		ok = inv_lastsession_level_lessthan(&sessp->s_fsid,
+						     invtok,
+						     (u_char_t)level,
+						     &basesessp);
 	}
 	if ( ! ok ) {
 		mlog( MLOG_NORMAL | MLOG_WARNING | MLOG_MEDIA, _(
@@ -6830,7 +6839,7 @@ askinvforbaseof( uuid_t baseid, inv_session_t *sessp )
 	/* close the inventory
 	 */
 	ok = inv_close( invtok );
-	ASSERT( ok );
+	assert( ok );
 
 	/* return id of base session
 	 */
@@ -6930,7 +6939,7 @@ retry:
 	preamblestr[ preamblecnt++ ] = "\n";
 	preamblestr[ preamblecnt++ ] = fold;
 	preamblestr[ preamblecnt++ ] = "\n\n";
-	ASSERT( preamblecnt <= PREAMBLEMAX );
+	assert( preamblecnt <= PREAMBLEMAX );
 	dlog_begin( preamblestr, preamblecnt );
 
 	/* query: ask if media changed or declined
@@ -6947,7 +6956,7 @@ retry:
 	}
 	querycnt = 0;
 	querystr[ querycnt++ ] = question;
-	ASSERT( querycnt <= QUERYMAX );
+	assert( querycnt <= QUERYMAX );
 	choicecnt = 0;
 	dontix = choicecnt;
 	choicestr[ choicecnt++ ] = _("media change declined");
@@ -6962,7 +6971,7 @@ retry:
 	}
 	doix = choicecnt;
 	choicestr[ choicecnt++ ] = _("media changed");
-	ASSERT( choicecnt <= CHOICEMAX );
+	assert( choicecnt <= CHOICEMAX );
 	sigintix = IXMAX - 1;
 
 	responseix = dlog_multi_query( querystr,
@@ -6985,7 +6994,7 @@ retry:
 		ackstr[ ackcnt++ ] = _("media change aborted\n");
 	} else if ( responseix == invstatix ) {
 		ackstr[ ackcnt++ ] = "\n";
-		ASSERT( ackcnt <= ACKMAX );
+		assert( ackcnt <= ACKMAX );
 		dlog_multi_ack( ackstr,
 				ackcnt );
 		pi_show_nomloglock( );
@@ -6994,13 +7003,13 @@ retry:
 		postamblestr[ postamblecnt++ ] = "\n";
 		postamblestr[ postamblecnt++ ] = fold;
 		postamblestr[ postamblecnt++ ] = "\n\n";
-		ASSERT( postamblecnt <= POSTAMBLEMAX );
+		assert( postamblecnt <= POSTAMBLEMAX );
 		dlog_end( postamblestr,
 			  postamblecnt );
 		goto retry;
 	} else if ( responseix == neededix ) {
 		ackstr[ ackcnt++ ] = "\n";
-		ASSERT( ackcnt <= ACKMAX );
+		assert( ackcnt <= ACKMAX );
 		dlog_multi_ack( ackstr,
 				ackcnt );
 		display_needed_objects( purp,
@@ -7012,16 +7021,16 @@ retry:
 		postamblestr[ postamblecnt++ ] = "\n";
 		postamblestr[ postamblecnt++ ] = fold;
 		postamblestr[ postamblecnt++ ] = "\n\n";
-		ASSERT( postamblecnt <= POSTAMBLEMAX );
+		assert( postamblecnt <= POSTAMBLEMAX );
 		dlog_end( postamblestr,
 			  postamblecnt );
 		goto retry;
 	} else {
-		ASSERT( responseix == sigintix );
+		assert( responseix == sigintix );
 		ackstr[ ackcnt++ ] = _("keyboard interrupt\n");
 	}
 
-	ASSERT( ackcnt <= ACKMAX );
+	assert( ackcnt <= ACKMAX );
 	dlog_multi_ack( ackstr,
 			ackcnt );
 
@@ -7030,7 +7039,7 @@ retry:
 	postamblestr[ postamblecnt++ ] = "\n";
 	postamblestr[ postamblecnt++ ] = fold;
 	postamblestr[ postamblecnt++ ] = "\n\n";
-	ASSERT( postamblecnt <= POSTAMBLEMAX );
+	assert( postamblecnt <= POSTAMBLEMAX );
 	dlog_end( postamblestr,
 		  postamblecnt );
 
@@ -7086,7 +7095,7 @@ retry:
 	preamblestr[ preamblecnt++ ] = "\n";
 	preamblestr[ preamblecnt++ ] = fold;
 	preamblestr[ preamblecnt++ ] = "\n\n";
-	ASSERT( preamblecnt <= PREAMBLEMAX );
+	assert( preamblecnt <= PREAMBLEMAX );
 	dlog_begin( preamblestr, preamblecnt );
 
 	/* display vital stats and ask if this one should be restored
@@ -7102,7 +7111,7 @@ retry:
 			 "the following dump has been found"
 			 "\n\n") );
 	}
-	ASSERT( strlen( introstring ) < sizeof( introstring ));
+	assert( strlen( introstring ) < sizeof( introstring ));
 	display_dump_label( BOOL_FALSE,
 			    MLOG_NORMAL | MLOG_BARE,
 			    introstring,
@@ -7119,14 +7128,14 @@ retry:
 			_("\ninteractively restore from this dump?\n")
 				: _("\nrestore this dump?\n");
 	}
-	ASSERT( querycnt <= QUERYMAX );
+	assert( querycnt <= QUERYMAX );
 	choicecnt = 0;
 	dontix = choicecnt;
 	choicestr[ choicecnt++ ] = _("skip");
 	doix = choicecnt;
 	choicestr[ choicecnt++ ] = (persp->a.interpr) ?
 				_("interactively restore\n") : _("restore\n");
-	ASSERT( choicecnt <= CHOICEMAX );
+	assert( choicecnt <= CHOICEMAX );
 	sigintix = IXMAX - 1;
 
 	responseix = dlog_multi_query( querystr,
@@ -7150,11 +7159,11 @@ retry:
 	} else if ( responseix == dontix ) {
 		ackstr[ ackcnt++ ] = _("dump skipped\n");
 	} else {
-		ASSERT( responseix == sigintix );
+		assert( responseix == sigintix );
 		ackstr[ ackcnt++ ] = _("keyboard interrupt\n");
 	}
 
-	ASSERT( ackcnt <= ACKMAX );
+	assert( ackcnt <= ACKMAX );
 	dlog_multi_ack( ackstr,
 			ackcnt );
 
@@ -7163,7 +7172,7 @@ retry:
 	postamblestr[ postamblecnt++ ] = "\n";
 	postamblestr[ postamblecnt++ ] = fold;
 	postamblestr[ postamblecnt++ ] = "\n\n";
-	ASSERT( postamblecnt <= POSTAMBLEMAX );
+	assert( postamblecnt <= POSTAMBLEMAX );
 	dlog_end( postamblestr,
 		  postamblecnt );
 
@@ -7326,8 +7335,8 @@ restore_file_cb( void *cp, bool_t linkpr, char *path1, char *path2 )
 			return BOOL_FALSE;
 		}
 	} else if ( ! tranp->t_toconlypr ) {
-		ASSERT( path1 );
-		ASSERT( path2 );
+		assert( path1 );
+		assert( path2 );
 		mlog( MLOG_TRACE,
 		      "linking %s to %s\n",
 		      path1,
@@ -7371,7 +7380,7 @@ restore_file_cb( void *cp, bool_t linkpr, char *path1, char *path2 )
 static int
 set_file_owner(
 	char		 *path,
-	intgen_t	 *fdp,
+	int	 *fdp,
 	stream_context_t *strcxtp)
 {
 	bstat_t		*bstatp = &strcxtp->sc_bstat;
@@ -7432,11 +7441,11 @@ restore_reg( drive_t *drivep,
 {
 	bstat_t *bstatp = &fhdrp->fh_stat;
 	stream_context_t *strctxp = (stream_context_t *)drivep->d_strmcontextp;
-	intgen_t *fdp = &strctxp->sc_fd;
-	intgen_t rval;
+	int *fdp = &strctxp->sc_fd;
+	int rval;
 	struct fsxattr fsxattr;
 	struct stat64 stat;
-	intgen_t oflags;
+	int oflags;
 
 	if ( !path )
 		return BOOL_TRUE;
@@ -7520,10 +7529,10 @@ restore_reg( drive_t *drivep,
 		/* set the extended inode flags, except those which must
 		 * be set only after all data has been restored.
 		 */
-		ASSERT( bstatp->bs_extsize >= 0 );
+		assert( bstatp->bs_extsize >= 0 );
 		memset((void *)&fsxattr, 0, sizeof( fsxattr ));
 		fsxattr.fsx_xflags = bstatp->bs_xflags & ~POST_DATA_XFLAGS;
-		fsxattr.fsx_extsize = (u_int32_t) bstatp->bs_extsize;
+		fsxattr.fsx_extsize = (uint32_t) bstatp->bs_extsize;
 		fsxattr.fsx_projid = bstat_projid(bstatp);
 
 		rval = ioctl( *fdp, XFS_IOC_FSSETXATTR, (void *)&fsxattr);
@@ -7558,7 +7567,7 @@ static bool_t
 restore_extent_group( drive_t *drivep,
 		      filehdr_t *fhdrp,
 		      char *path,
-		      intgen_t fd,
+		      int fd,
 		      bool_t ehcs,
 		      rv_t *rvp )
 {
@@ -7601,7 +7610,7 @@ restore_extent_group( drive_t *drivep,
 		 */
 		if ( ehdr.eh_type == EXTENTHDR_TYPE_ALIGN ) {
 			size_t sz;
-			ASSERT( ehdr.eh_sz <= INTGENMAX );
+			assert( ehdr.eh_sz <= INTGENMAX );
 			sz = ( size_t )ehdr.eh_sz;
 			rv = discard_padding( sz, drivep );
 			if ( rv != RV_OK ) {
@@ -7625,7 +7634,7 @@ restore_extent_group( drive_t *drivep,
 
 		/* real data
 		 */
-		ASSERT( ehdr.eh_type == EXTENTHDR_TYPE_DATA );
+		assert( ehdr.eh_type == EXTENTHDR_TYPE_DATA );
 		bytesread = 0;
 		rv = restore_extent( fhdrp,
 				     &ehdr,
@@ -7670,9 +7679,9 @@ restore_complete_reg(stream_context_t *strcxtp)
 {
 	bstat_t *bstatp = &strcxtp->sc_bstat;
 	char *path = strcxtp->sc_path;
-	intgen_t fd = strcxtp->sc_fd;
+	int fd = strcxtp->sc_fd;
 	struct utimbuf utimbuf;
-	intgen_t rval;
+	int rval;
 
 	// only applies to regular files
 	if (!S_ISREG((strcxtp->sc_bstat.bs_mode)))
@@ -7744,7 +7753,7 @@ restore_complete_reg(stream_context_t *strcxtp)
 		struct fsxattr fsxattr;
 		memset((void *)&fsxattr, 0, sizeof( fsxattr ));
 		fsxattr.fsx_xflags = bstatp->bs_xflags;
-		fsxattr.fsx_extsize = (u_int32_t)bstatp->bs_extsize;
+		fsxattr.fsx_extsize = (uint32_t)bstatp->bs_extsize;
 		fsxattr.fsx_projid = bstat_projid(bstatp);
 
 		rval = ioctl( fd, XFS_IOC_FSSETXATTR, (void *)&fsxattr );
@@ -7772,7 +7781,7 @@ restore_spec( filehdr_t *fhdrp, rv_t *rvp, char *path )
 	bstat_t *bstatp = &fhdrp->fh_stat;
 	struct utimbuf utimbuf;
 	char *printstr;
-	intgen_t rval;
+	int rval;
 
 	if ( ! path ) {
 		return BOOL_TRUE;
@@ -7940,8 +7949,8 @@ restore_symlink( drive_t *drivep,
 	drive_ops_t *dop = drivep->d_opsp;
 	extenthdr_t ehdr;
 	char *scratch;
-	intgen_t nread;
-	intgen_t rval;
+	int nread;
+	int rval;
 	rv_t rv;
 	mode_t oldumask;
 
@@ -7968,7 +7977,7 @@ restore_symlink( drive_t *drivep,
 
 	/* symlinks always have one extent
 	 */
-	ASSERT( ehdr.eh_type == EXTENTHDR_TYPE_DATA );
+	assert( ehdr.eh_type == EXTENTHDR_TYPE_DATA );
 
 	/* read the link path extent
 	 */
@@ -8003,7 +8012,7 @@ restore_symlink( drive_t *drivep,
 		}
 		return BOOL_FALSE;
 	}
-	ASSERT( ( off64_t )nread == ehdr.eh_sz );
+	assert( ( off64_t )nread == ehdr.eh_sz );
 	if ( ! scratch ) {
 		if ( path ) {
 			mlog( MLOG_VERBOSE | MLOG_WARNING, _(
@@ -8078,8 +8087,8 @@ read_filehdr( drive_t *drivep, filehdr_t *fhdrp, bool_t fhcs )
 	bstat_t *bstatp = &fhdrp->fh_stat;
 	drive_ops_t *dop = drivep->d_opsp;
 	/* REFERENCED */
-	intgen_t nread;
-	intgen_t rval;
+	int nread;
+	int rval;
 	filehdr_t tmpfh;
 
 	nread = read_buf( ( char * )&tmpfh,
@@ -8106,7 +8115,7 @@ read_filehdr( drive_t *drivep, filehdr_t *fhdrp, bool_t fhcs )
 	default:
 		return RV_CORE;
 	}
-	ASSERT( ( size_t )nread == sizeof( *fhdrp ));
+	assert( ( size_t )nread == sizeof( *fhdrp ));
 
 	mlog( MLOG_NITTY,
 	      "read file hdr off %lld flags 0x%x ino %llu mode 0x%08x\n",
@@ -8137,8 +8146,8 @@ read_extenthdr( drive_t *drivep, extenthdr_t *ehdrp, bool_t ehcs )
 {
 	drive_ops_t *dop = drivep->d_opsp;
 	/* REFERENCED */
-	intgen_t nread;
-	intgen_t rval;
+	int nread;
+	int rval;
 	extenthdr_t tmpeh;
 
 	nread = read_buf( ( char * )&tmpeh,
@@ -8165,7 +8174,7 @@ read_extenthdr( drive_t *drivep, extenthdr_t *ehdrp, bool_t ehcs )
 	default:
 		return RV_CORE;
 	}
-	ASSERT( ( size_t )nread == sizeof( *ehdrp ));
+	assert( ( size_t )nread == sizeof( *ehdrp ));
 
 	mlog( MLOG_NITTY,
 	      "read extent hdr size %lld offset %lld type %d flags %08x\n",
@@ -8200,13 +8209,13 @@ read_dirent( drive_t *drivep,
 	global_hdr_t *grhdrp = drivep->d_greadhdrp;
 	drive_ops_t *dop = drivep->d_opsp;
 	/* REFERENCED */
-	intgen_t nread;
-	intgen_t rval;
+	int nread;
+	int rval;
 	direnthdr_t tmpdh;
 	char *namep;    // beginning of name following the direnthdr_t
 
-	ASSERT( sizeof( direnthdr_t ) == DIRENTHDR_SZ );
-	ASSERT( sizeof( direnthdr_v1_t ) == DIRENTHDR_SZ );
+	assert( sizeof( direnthdr_t ) == DIRENTHDR_SZ );
+	assert( sizeof( direnthdr_v1_t ) == DIRENTHDR_SZ );
 
 	/* read the head of the dirent
 	 */
@@ -8233,7 +8242,7 @@ read_dirent( drive_t *drivep,
 	default:
 		return RV_CORE;
 	}
-	ASSERT( ( size_t )nread == DIRENTHDR_SZ );
+	assert( ( size_t )nread == DIRENTHDR_SZ );
 
 	if ( grhdrp->gh_version >= GLOBAL_HDR_VERSION_3 ) {
 		xlate_direnthdr(&tmpdh, dhdrp, 1);
@@ -8276,15 +8285,15 @@ read_dirent( drive_t *drivep,
 	/* if null, return
 	 */
 	if ( dhdrp->dh_ino == 0 ) {
-		ASSERT( ( size_t )dhdrp->dh_sz == sizeof( direnthdr_t ));
+		assert( ( size_t )dhdrp->dh_sz == sizeof( direnthdr_t ));
 		return RV_OK;
 	}
 
 	/* read the remainder of the dirent.
 	 */
-	ASSERT( ( size_t )dhdrp->dh_sz <= direntbufsz );
-	ASSERT( ( size_t )dhdrp->dh_sz >= sizeof( direnthdr_t ));
-	ASSERT( ! ( ( size_t )dhdrp->dh_sz & ( DIRENTHDR_ALIGN - 1 )));
+	assert( ( size_t )dhdrp->dh_sz <= direntbufsz );
+	assert( ( size_t )dhdrp->dh_sz >= sizeof( direnthdr_t ));
+	assert( ! ( ( size_t )dhdrp->dh_sz & ( DIRENTHDR_ALIGN - 1 )));
 	if ( ( size_t )dhdrp->dh_sz > sizeof( direnthdr_t )) {
 		size_t remsz = ( size_t )dhdrp->dh_sz - sizeof( direnthdr_t );
 		nread = read_buf( namep,
@@ -8310,7 +8319,7 @@ read_dirent( drive_t *drivep,
 		default:
 			return RV_CORE;
 		}
-		ASSERT( ( size_t ) nread == remsz );
+		assert( ( size_t ) nread == remsz );
 	}
 
 	return RV_OK;
@@ -8322,8 +8331,8 @@ read_extattrhdr( drive_t *drivep, extattrhdr_t *ahdrp, bool_t ahcs )
 {
 	drive_ops_t *dop = drivep->d_opsp;
 	/* REFERENCED */
-	intgen_t nread;
-	intgen_t rval;
+	int nread;
+	int rval;
 	extattrhdr_t tmpah;
 
 	nread = read_buf( ( char * )&tmpah,
@@ -8350,13 +8359,13 @@ read_extattrhdr( drive_t *drivep, extattrhdr_t *ahdrp, bool_t ahcs )
 	default:
 		return RV_CORE;
 	}
-	ASSERT( ( size_t )nread == sizeof( *ahdrp ));
+	assert( ( size_t )nread == sizeof( *ahdrp ));
 
 	mlog( MLOG_NITTY,
 	      "read extattr hdr sz %u valoff %u flags 0x%x valsz %u cs 0x%x\n",
 	      ahdrp->ah_sz,
-	      ( u_intgen_t )ahdrp->ah_valoff,
-	      ( u_intgen_t )ahdrp->ah_flags,
+	      ( uint )ahdrp->ah_valoff,
+	      ( uint )ahdrp->ah_flags,
 	      ahdrp->ah_valsz,
 	      ahdrp->ah_checksum );
 
@@ -8394,8 +8403,8 @@ discard_padding( size_t sz, drive_t *drivep )
 {
 	drive_ops_t *dop = drivep->d_opsp;
 	/* REFERENCED */
-	intgen_t nread;
-	intgen_t rval;
+	int nread;
+	int rval;
 
 	nread = read_buf( 0,
 			  sz,
@@ -8405,7 +8414,7 @@ discard_padding( size_t sz, drive_t *drivep )
 			  &rval );
 	switch( rval ) {
 	case 0:
-		ASSERT( ( size_t )nread == sz );
+		assert( ( size_t )nread == sz );
 		return RV_OK;
 	case DRIVE_ERROR_EOF:
 	case DRIVE_ERROR_EOD:
@@ -8441,11 +8450,11 @@ restore_extent( filehdr_t *fhdrp,
 	*bytesreadp = 0;
 
 	if ( fd != -1 ) {
-		ASSERT( path );
+		assert( path );
 		/* seek to the beginning of the extent.
 		 * must be on a basic fs blksz boundary.
 		 */
-		ASSERT( ( off & ( off64_t )( BBSIZE - 1 )) == 0 );
+		assert( ( off & ( off64_t )( BBSIZE - 1 )) == 0 );
 		new_off = lseek64(  fd, off, SEEK_SET );
 		if ( new_off < 0 ) {
 			mlog( MLOG_NORMAL | MLOG_WARNING, _(
@@ -8459,7 +8468,7 @@ restore_extent( filehdr_t *fhdrp,
 			fd = -1;
 			new_off = off;
 		}
-		ASSERT( new_off == off );
+		assert( new_off == off );
 	}
 	if ( (fd != -1) && (bstatp->bs_xflags & XFS_XFLAG_REALTIME) ) {
 		if ( (ioctl(fd, XFS_IOC_DIOINFO, &da) < 0) ) {
@@ -8480,8 +8489,8 @@ restore_extent( filehdr_t *fhdrp,
 		char *bufp;
 		size_t req_bufsz;	/* requested bufsz */
 		size_t sup_bufsz;	/* supplied bufsz */
-		intgen_t nwritten;
-		intgen_t rval;
+		int nwritten;
+		int rval;
 		size_t ntowrite;
 
 		req_bufsz = ( size_t )min( ( off64_t )INTGENMAX, sz );
@@ -8527,20 +8536,20 @@ restore_extent( filehdr_t *fhdrp,
 			return rv;
 		}
 		if ( off >= bstatp->bs_size ) {
-			ASSERT( off == bstatp->bs_size );
+			assert( off == bstatp->bs_size );
 			ntowrite = 0;
 		} else if ((off64_t)sup_bufsz > bstatp->bs_size - off ) {
 			ntowrite = ( size_t )( bstatp->bs_size - off );
 		} else {
 			ntowrite = sup_bufsz;
 		}
-		ASSERT( ntowrite <= ( size_t )INTGENMAX );
+		assert( ntowrite <= ( size_t )INTGENMAX );
 		if ( ntowrite > 0 ) {
 			*bytesreadp += ( off64_t )ntowrite;
 			if ( fd != -1 ) {
 				size_t tries;
 				size_t remaining;
-				intgen_t rval;
+				int rval;
 				off64_t tmp_off;
 
 				rval = 0; /* for lint */
@@ -8549,7 +8558,7 @@ restore_extent( filehdr_t *fhdrp,
 				      remaining = ntowrite,
 				      tmp_off = off
 				      ;
-				      nwritten < ( intgen_t )ntowrite
+				      nwritten < ( int )ntowrite
 				      &&
 				      tries < WRITE_TRIES_MAX
 				      ;
@@ -8559,7 +8568,7 @@ restore_extent( filehdr_t *fhdrp,
 				      tmp_off += ( off64_t )rval ) {
 					int rttrunc = 0;
 					int trycnt = 0;
-					ASSERT( remaining
+					assert( remaining
 						<=
 						( size_t )INTGENMAX );
 					/*
@@ -8605,7 +8614,7 @@ restore_extent( filehdr_t *fhdrp,
 						nwritten = rval;
 						break;
 					}
-					ASSERT( ( size_t )rval <= remaining );
+					assert( ( size_t )rval <= remaining );
 					if ( rval < remaining ) {
 						mlog( MLOG_NORMAL | MLOG_WARNING,
 						      _("attempt to "
@@ -8625,7 +8634,7 @@ restore_extent( filehdr_t *fhdrp,
 					}
 				}
 			} else {
-				nwritten = ( intgen_t )ntowrite;
+				nwritten = ( int )ntowrite;
 			}
 		} else {
 			nwritten = 0;
@@ -8641,7 +8650,7 @@ restore_extent( filehdr_t *fhdrp,
 				      off,
 				      strerror( errno ));
 			} else {
-				ASSERT( ( size_t )nwritten < ntowrite );
+				assert( ( size_t )nwritten < ntowrite );
 				mlog( MLOG_NORMAL, _(
 				      "attempt to write %u bytes to %s at "
 				      "offset %lld failed: only %d bytes "
@@ -8654,8 +8663,8 @@ restore_extent( filehdr_t *fhdrp,
 			/* stop attempting to write, but complete reads
 			 */
 			fd = -1;
-			ASSERT( ntowrite <= ( size_t )INTGENMAX );
-			nwritten = ( intgen_t )ntowrite;
+			assert( ntowrite <= ( size_t )INTGENMAX );
+			nwritten = ( int )ntowrite;
 		}
 		sz -= ( off64_t )sup_bufsz;
 		off += ( off64_t )nwritten;
@@ -8670,7 +8679,7 @@ static size_t extattrbufsz = 0; /* size of each extattr buffer */
 static bool_t
 extattr_init( size_t drivecnt )
 {
-	ASSERT( ! extattrbufp );
+	assert( ! extattrbufp );
 	extattrbufsz = EXTATTRHDR_SZ		/* dump hdr */
 		       +
 		       NAME_MAX			/* attribute name */
@@ -8718,7 +8727,7 @@ restore_extattr( drive_t *drivep,
 	bstat_t *bstatp = &fhdrp->fh_stat;
 	bool_t isfilerestored = BOOL_FALSE;
 
-	ASSERT( extattrbufp );
+	assert( extattrbufp );
 
 	if ( ! isdirpr )
 		isfilerestored = partial_check(bstatp->bs_ino,  bstatp->bs_size);
@@ -8728,8 +8737,8 @@ restore_extattr( drive_t *drivep,
 	for ( ; ; ) {
 		size_t recsz;
 		/* REFERENCED */
-		intgen_t nread;
-		intgen_t rval;
+		int nread;
+		int rval;
 		rv_t rv;
 
 		rv = read_extattrhdr( drivep, ahdrp, ahcs );
@@ -8742,8 +8751,8 @@ restore_extattr( drive_t *drivep,
 		}
 
 		recsz = ( size_t )ahdrp->ah_sz;
-		ASSERT( recsz <= extattrbufsz );
-		ASSERT( recsz >= EXTATTRHDR_SZ );
+		assert( recsz <= extattrbufsz );
+		assert( recsz >= EXTATTRHDR_SZ );
 		nread = read_buf( ( char * )&ahdrp[ 1 ],
 				  recsz - EXTATTRHDR_SZ,
 				  ( void * )drivep,
@@ -8766,7 +8775,7 @@ restore_extattr( drive_t *drivep,
 		default:
 			return RV_CORE;
 		}
-		ASSERT( nread == ( intgen_t )( recsz - EXTATTRHDR_SZ ));
+		assert( nread == ( int )( recsz - EXTATTRHDR_SZ ));
 
 		if ( ! persp->a.restoreextattrpr && ! persp->a.restoredmpr ) {
 			continue;
@@ -8781,7 +8790,7 @@ restore_extattr( drive_t *drivep,
 		 * extended attributes.
 		 */
 		if ( isdirpr ) {
-			ASSERT( ! path );
+			assert( ! path );
 			if ( dah != DAH_NULL ) {
 				dirattr_addextattr( dah, ahdrp );
 			}
@@ -8844,7 +8853,7 @@ setextattr( char *path, extattrhdr_t *ahdrp )
 	bool_t issecurepr = ahdrp->ah_flags & EXTATTRHDR_FLAGS_SECURE;
 	bool_t isdmpr;
 	int attr_namespace;
-	intgen_t rval;
+	int rval;
 
 	isdmpr = ( isrootpr &&
 		   !strncmp((char *)(&ahdrp[1]), dmiattr, sizeof(dmiattr)-1) );
@@ -8866,7 +8875,7 @@ setextattr( char *path, extattrhdr_t *ahdrp )
 	rval = attr_set( path,
 			 ( char * )( &ahdrp[ 1 ] ),
 			 ( ( char * )ahdrp ) + ( u_long_t )ahdrp->ah_valoff,
-			 ( intgen_t )ahdrp->ah_valsz,
+			 ( int )ahdrp->ah_valsz,
 			 attr_namespace | ATTR_DONTFOLLOW );
 	if ( rval ) {
 		char *namespace;
@@ -9282,7 +9291,7 @@ pi_show( char *introstring )
 {
 	char strbuf[ 100 ];
 	/* REFERENCED */
-	intgen_t strbuflen;
+	int strbuflen;
 	fold_t fold;
 
 	if ( mlog_level_ss[ MLOG_SS_MEDIA ] < MLOG_NITTY + 1 ) {
@@ -9294,7 +9303,7 @@ pi_show( char *introstring )
 	strbuflen = sprintf( strbuf,
 			     "persistent inventory media file tree%s",
 			     introstring );
-	ASSERT( ( size_t )strbuflen < sizeof( strbuf ));
+	assert( ( size_t )strbuflen < sizeof( strbuf ));
 	fold_init( fold, strbuf, ':' );
 	mlog( MLOG_NORMAL | MLOG_BARE | MLOG_NOLOCK,
 	      "\n%s\n\n",
@@ -9314,7 +9323,7 @@ static void
 pi_show_nomloglock( void )
 {
 	dh_t strmh;
-	intgen_t strmix;
+	int strmix;
 
 
 	/* no point in proceeding if pi not begun
@@ -9336,7 +9345,7 @@ pi_show_nomloglock( void )
 	      ;
 	      strmh = DH2S( strmh )->s_nexth, strmix++ ) {
 		dh_t objh;
-		intgen_t objix;
+		int objix;
 
 		mlog( MLOG_NORMAL | MLOG_BARE | MLOG_NOLOCK | MLOG_MEDIA,
 		      _("\nmedia stream %u:\n"),
@@ -9494,7 +9503,7 @@ pi_show_nomloglock( void )
 	}
 }
 
-static intgen_t
+static int
 egrpcmp( egrp_t *egrpap, egrp_t *egrpbp )
 {
 	if ( egrpap->eg_ino < egrpbp->eg_ino ) {
@@ -9512,7 +9521,7 @@ egrpcmp( egrp_t *egrpap, egrp_t *egrpbp )
 
 static void
 display_dump_label( bool_t lockpr,
-		    intgen_t mllevel,
+		    int mllevel,
 		    char *introstr,
 		    global_hdr_t *grhdrp,
 		    media_hdr_t *mrhdrp,
@@ -9525,8 +9534,8 @@ display_dump_label( bool_t lockpr,
 	char media_string_uuid[UUID_STR_LEN + 1];
 	char fs_string_uuid[UUID_STR_LEN + 1];
 
-	ASSERT( scrhdrp->cih_level >= 0 );
-	ASSERT( scrhdrp->cih_level < 10 );
+	assert( scrhdrp->cih_level >= 0 );
+	assert( scrhdrp->cih_level < 10 );
 	level_string[ 0 ] = ( char )( '0' + ( u_char_t )scrhdrp->cih_level );
 	level_string[ 1 ] = 0;
 

@@ -16,12 +16,15 @@
  * Inc.,  51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
-#include <xfs/xfs.h>
-#include <xfs/jdm.h>
-
+#include <unistd.h>
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <errno.h>
 #include <dirent.h>
+#include <string.h>
+#include <uuid/uuid.h>
+
+#include "config.h"
 
 #include "types.h"
 #include "fs.h"
@@ -79,7 +82,7 @@ void
 var_skip( uuid_t *dumped_fsidp, void ( *cb )( xfs_ino_t ino ))
 {
 	uuid_t fsid;
-	intgen_t rval;
+	int rval;
 
 	/* see if the fs uuid's match
 	 */
@@ -113,7 +116,7 @@ var_skip_recurse( char *base, void ( *cb )( xfs_ino_t ino ))
 	struct stat64 statbuf;
 	DIR *dirp;
 	struct dirent *direntp;
-	intgen_t rval;
+	int rval;
 
 	rval = lstat64( base, &statbuf );
 	if ( rval ) {

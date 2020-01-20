@@ -19,12 +19,18 @@
 #include <xfs/xfs.h>
 #include <xfs/jdm.h>
 
+#include <unistd.h>
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/dir.h>
+#include <assert.h>
+#include <string.h>
+
+#include "config.h"
+
 #include "types.h"
 #include "inv_priv.h"
 
@@ -39,12 +45,12 @@
 /*                                                                      */
 /*----------------------------------------------------------------------*/
 
-intgen_t
+int
 get_counters( int fd, void **cntpp, size_t cntsz )
 {
 	/* object must be locked at least SHARED by caller */
-	u_int num;
-	ASSERT( cntsz >= sizeof( invt_counter_t ) );
+	uint num;
+	assert( cntsz >= sizeof( invt_counter_t ) );
 
 	*cntpp =  calloc( 1, cntsz);
 
@@ -62,11 +68,11 @@ get_counters( int fd, void **cntpp, size_t cntsz )
 		      "INV : Unknown version %d - Expected version %d\n"),
 		      (int) ( (invt_counter_t *)(*cntpp))->ic_vernum,
 		      (int) INV_VERSION );
-		ASSERT ( ((invt_counter_t *)(*cntpp))->ic_vernum ==
+		assert ( ((invt_counter_t *)(*cntpp))->ic_vernum ==
 			INV_VERSION );
 	} 
 
-	return (intgen_t) num;
+	return (int) num;
 }
 
 
@@ -77,7 +83,7 @@ get_counters( int fd, void **cntpp, size_t cntsz )
 /* get_headers                                                          */
 /*----------------------------------------------------------------------*/
 
-intgen_t
+int
 get_headers( int fd, void **hdrs, size_t bufsz, size_t off )
 {
 
@@ -104,30 +110,21 @@ get_headers( int fd, void **hdrs, size_t bufsz, size_t off )
 /* get_invtrecord                                                       */
 /*----------------------------------------------------------------------*/
 
-intgen_t
+int
 get_invtrecord( int fd, void *buf, size_t bufsz, off64_t off, 
-	        int whence, bool_t dolock )
+		bool_t dolock )
 {
 	int  nread;
 	
-	ASSERT ( fd >= 0 );
+	assert ( fd >= 0 );
 	
 	if ( dolock ) 
 		INVLOCK( fd, LOCK_SH );
 
-	if ( lseek( fd, (off_t)off, whence ) < 0 ) {
-		INV_PERROR( _("Error in reading inventory record "
-			      "(lseek failed): ") );
-		if ( dolock ) 
-			INVLOCK( fd, LOCK_UN );
-		return -1;
-	}
-	
-	nread = read( fd, buf, bufsz );
-
+	nread = pread(fd, buf, bufsz, (off_t)off);
 	if (  nread != (int) bufsz ) {
 		INV_PERROR( _("Error in reading inventory record :") );
-		if ( dolock ) 
+		if ( dolock )
 			INVLOCK( fd, LOCK_UN );
 		return -1;
 	}
@@ -147,24 +144,16 @@ get_invtrecord( int fd, void *buf, size_t bufsz, off64_t off,
 /* put_invtrecord                                                       */
 /*----------------------------------------------------------------------*/
 
-intgen_t
-put_invtrecord( int fd, void *buf, size_t bufsz, off64_t off, 
-	        int whence, bool_t dolock )
+int
+put_invtrecord( int fd, void *buf, size_t bufsz, off64_t off, bool_t dolock )
 {
 	int nwritten;
 	
 	if ( dolock )
 		INVLOCK( fd, LOCK_EX );
 	
-	if ( lseek( fd, (off_t)off, whence ) < 0 ) {
-		INV_PERROR( _("Error in writing inventory record "
-			      "(lseek failed): ") );
-		if ( dolock ) 
-			INVLOCK( fd, LOCK_UN );
-		return -1;
-	}
-	
-	if (( nwritten = write( fd, buf, bufsz ) ) != (int) bufsz ) {
+	nwritten = pwrite(fd, buf, bufsz, (off_t)off);
+	if (nwritten != (int) bufsz ) {
 		INV_PERROR( _("Error in writing inventory record :") );
 		if ( dolock )
 			INVLOCK( fd, LOCK_UN );
@@ -187,7 +176,7 @@ put_invtrecord( int fd, void *buf, size_t bufsz, off64_t off,
 /*----------------------------------------------------------------------*/
 
 
-intgen_t
+int
 get_headerinfo( int fd, void **hdrs, void **cnt,
 	        size_t hdrsz, size_t cntsz, bool_t dolock )
 {	
@@ -216,7 +205,7 @@ get_headerinfo( int fd, void **hdrs, void **cnt,
 /* get_lastheader                                                       */
 /*----------------------------------------------------------------------*/
 
-intgen_t
+int
 get_lastheader( int fd, void **ent, size_t hdrsz, size_t cntsz )
 {	
 	int	     	 nindices;
@@ -232,7 +221,7 @@ get_lastheader( int fd, void **ent, size_t hdrsz, size_t cntsz )
 	/* if there's space anywhere at all, then it must be in the last
 	   entry */
 	*ent = malloc( hdrsz );
-	pos = (char *) arr + ( (u_int)nindices - 1 ) * hdrsz;
+	pos = (char *) arr + ( (uint)nindices - 1 ) * hdrsz;
 	memcpy( *ent, pos, hdrsz );
 	free ( arr );
 	free ( cnt );

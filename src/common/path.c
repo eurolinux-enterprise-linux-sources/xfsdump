@@ -16,7 +16,13 @@
  * Inc.,  51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
-#include <xfs/xfs.h>
+#include <assert.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "config.h"
 
 #include "path.h"
 
@@ -51,8 +57,8 @@ path_diff( char *path, char *base )
 {
 	char *diff;
 
-	ASSERT( *base == '/' );
-	ASSERT( *path == '/' );
+	assert( *base == '/' );
+	assert( *path == '/' );
 
 	if ( ! path_beginswith( path, base )) {
 		return 0;
@@ -70,7 +76,7 @@ path_diff( char *path, char *base )
 	}
 
 	diff = ( char * )calloc( 1, strlen( path ) + 1 );
-	ASSERT( diff );
+	assert( diff );
 	strcpy( diff, path );
 
 	return diff;
@@ -102,7 +108,7 @@ path_reltoabs( char *dir, char *basedir )
 					   strlen( dir )
 					   +
 					   1 );
-		ASSERT( absdir );
+		assert( absdir );
 
 		( void )sprintf( absdir, "%s/%s", basedir, dir );
 
@@ -127,7 +133,7 @@ path_normalize( char *path )
 	char *pep;
 	char *npath;
 
-	ASSERT( path[ 0 ] == '/' );
+	assert( path[ 0 ] == '/' );
 
 	while ( ( pep = pem_next( pemp )) != 0 ) {
 		if ( ! strcmp( pep, "" )) {
@@ -163,7 +169,7 @@ static pem_t *
 pem_alloc( char *path )
 {
 	pem_t *pemp = ( pem_t * )calloc( 1, sizeof( pem_t ));
-	ASSERT( pemp );
+	assert( pemp );
 	pemp->pem_head = path;
 	pemp->pem_next = pemp->pem_head;
 
@@ -207,7 +213,7 @@ pem_next( pem_t *pemp )
 	/* allocate buffer to hold the path element, incl null termination
 	 */
 	p = ( char * )malloc( len + 1 );
-	ASSERT( p );
+	assert( p );
 
 	/* copy the path element into the buffer
 	 */
@@ -230,7 +236,7 @@ static pa_t *
 pa_alloc( void )
 {
 	pa_t *pap = ( pa_t * )calloc( 1, sizeof( pa_t ));
-	ASSERT( pap );
+	assert( pap );
 
 	return pap;
 }
@@ -250,7 +256,7 @@ pa_free( pa_t *pap )
 static void
 pa_append( pa_t *pap, char *pep )
 {
-	ASSERT( pap->pa_cnt < PAMAX );
+	assert( pap->pa_cnt < PAMAX );
 
 	pap->pa_array[ pap->pa_cnt ] = pep;
 
@@ -261,12 +267,12 @@ static int
 pa_peel( pa_t *pap )
 {
 	if ( pap->pa_cnt <= 0 ) {
-		ASSERT( pap->pa_cnt == 0 );
+		assert( pap->pa_cnt == 0 );
 		return 0;
 	}
 
 	pap->pa_cnt--;
-	ASSERT( pap->pa_array[ pap->pa_cnt ] );
+	assert( pap->pa_array[ pap->pa_cnt ] );
 	free( ( void * )pap->pa_array[ pap->pa_cnt ] );
 	pap->pa_array[ pap->pa_cnt ] = 0;
 
@@ -292,7 +298,7 @@ pa_gen( pa_t *pap )
 	retp = ( char * )malloc( sz );
 
 	if (  pap->pa_cnt <= 0 ) {
-		ASSERT(  pap->pa_cnt == 0 );
+		assert(  pap->pa_cnt == 0 );
 		sprintf( retp, "/" );
 	} else {
 		p = retp;

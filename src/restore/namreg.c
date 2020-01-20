@@ -19,11 +19,17 @@
 #include <xfs/xfs.h>
 #include <xfs/jdm.h>
 
+#include <unistd.h>
+#include <stdlib.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <assert.h>
+#include <string.h>
+
+#include "config.h"
 
 #include "types.h"
 #include "lock.h"
@@ -110,7 +116,7 @@ static namreg_pers_t *npp = 0;
 /* definition of locally defined global functions ****************************/
 
 bool_t
-namreg_init( char *hkdir, bool_t resume, u_int64_t inocnt )
+namreg_init( char *hkdir, bool_t resume, uint64_t inocnt )
 {
 	if ( ntp ) {
 		return BOOL_TRUE;
@@ -118,15 +124,15 @@ namreg_init( char *hkdir, bool_t resume, u_int64_t inocnt )
 
 	/* sanity checks
 	 */
-	ASSERT( ! ntp );
-	ASSERT( ! npp );
+	assert( ! ntp );
+	assert( ! npp );
 
-	ASSERT( sizeof( namreg_pers_t ) <= NAMREG_PERS_SZ );
+	assert( sizeof( namreg_pers_t ) <= NAMREG_PERS_SZ );
 
 	/* allocate and initialize context
 	 */
 	ntp = ( namreg_tran_t * )calloc( 1, sizeof( namreg_tran_t ));
-	ASSERT( ntp );
+	assert( ntp );
 
 	/* generate a string containing the pathname of the namreg file
 	 */
@@ -170,7 +176,7 @@ namreg_init( char *hkdir, bool_t resume, u_int64_t inocnt )
 		{
 		bool_t successpr;
 		unsigned int ioctlcmd;
-		intgen_t loglevel;
+		int loglevel;
 		size_t trycnt;
 
 		for ( trycnt = 0,
@@ -185,7 +191,7 @@ namreg_init( char *hkdir, bool_t resume, u_int64_t inocnt )
 		      loglevel = max( MLOG_NORMAL, loglevel - 1 )) {
 			off64_t initsz;
 			struct flock64 flock64;
-			intgen_t rval;
+			int rval;
 
 			if ( ! ioctlcmd ) {
 				continue;
@@ -223,7 +229,7 @@ namreg_init( char *hkdir, bool_t resume, u_int64_t inocnt )
 
 	/* mmap the persistent descriptor
 	 */
-	ASSERT( ! ( NAMREG_PERS_SZ % pgsz ));
+	assert( ! ( NAMREG_PERS_SZ % pgsz ));
 	npp = ( namreg_pers_t * ) mmap_autogrow(
 				        NAMREG_PERS_SZ,
 				        ntp->nt_fd,
@@ -258,9 +264,9 @@ namreg_add( char *name, size_t namelen )
 	
 	/* sanity checks
 	 */
-	ASSERT( ntp );
-	ASSERT( npp );
-	ASSERT( !ntp->nt_map );
+	assert( ntp );
+	assert( npp );
+	assert( !ntp->nt_map );
 
 	/* make sure file pointer is positioned to append
 	 */
@@ -271,10 +277,10 @@ namreg_add( char *name, size_t namelen )
 			mlog( MLOG_NORMAL, _(
 			      "lseek of namreg failed: %s\n"),
 			      strerror( errno ));
-			ASSERT( 0 );
+			assert( 0 );
 			return NRH_NULL;
 		}
-		ASSERT( npp->np_appendoff == newoff );
+		assert( npp->np_appendoff == newoff );
 		ntp->nt_at_endpr = BOOL_TRUE;
 	}
 
@@ -290,7 +296,7 @@ namreg_add( char *name, size_t namelen )
 
 	/* write a one byte unsigned string length into the buffer.
 	 */
-	ASSERT( namelen < 256 );
+	assert( namelen < 256 );
 	c = ( unsigned char )( namelen & 0xff );
 	ntp->nt_buf[ntp->nt_off++] = c;
 
@@ -300,7 +306,7 @@ namreg_add( char *name, size_t namelen )
 	ntp->nt_off += namelen;
 
 	npp->np_appendoff += ( off64_t )( 1 + namelen );
-	ASSERT( oldoff <= HDLMAX );
+	assert( oldoff <= HDLMAX );
 
 #ifdef NAMREGCHK
 
@@ -358,13 +364,13 @@ namreg_flush( void )
 	return RV_OK;
 }
 
-intgen_t
+int
 namreg_get( nrh_t nrh,
 	    char *bufp,
 	    size_t bufsz )
 {
 	off64_t newoff;
-	intgen_t nread;
+	int nread;
 	size_t len;
 	char *in_bufp;
 	static char read_buf[256];
@@ -375,12 +381,12 @@ namreg_get( nrh_t nrh,
 
 	/* sanity checks
 	 */
-	ASSERT( ntp );
-	ASSERT( npp );
+	assert( ntp );
+	assert( npp );
 
 	/* make sure we aren't being given a NULL handle
 	 */
-	ASSERT( nrh != NRH_NULL );
+	assert( nrh != NRH_NULL );
 
 	/* convert the handle into the offset
 	 */
@@ -397,9 +403,9 @@ namreg_get( nrh_t nrh,
 
 	/* do sanity check on offset
 	 */
-	ASSERT( newoff <= HDLMAX );
-	ASSERT( newoff < npp->np_appendoff );
-	ASSERT( newoff >= ( off64_t )NAMREG_PERS_SZ );
+	assert( newoff <= HDLMAX );
+	assert( newoff < npp->np_appendoff );
+	assert( newoff >= ( off64_t )NAMREG_PERS_SZ );
 
 	lock( );
 
@@ -461,7 +467,7 @@ namreg_get( nrh_t nrh,
 
 	/* validate the checkbit
 	 */
-	ASSERT( chkbit
+	assert( chkbit
 		==
 		( ( ( nrh_t )len + ( nrh_t )bufp[ 0 ] ) & CHKBITLOMASK ));
 
@@ -473,7 +479,7 @@ namreg_get( nrh_t nrh,
 	
 	unlock( );
 
-	return ( intgen_t )len;
+	return ( int )len;
 }
 
 rv_t

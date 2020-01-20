@@ -19,9 +19,15 @@
 #include <xfs/xfs.h>
 #include <xfs/jdm.h>
 
+#include <stdio.h>
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <assert.h>
+#include <uuid/uuid.h>
+
+#include "config.h"
+
 #include "types.h"
 #include "mlog.h"
 #include "getopt.h"
@@ -79,10 +85,11 @@ typedef struct ses{
 
 #define SESLIM  240
 
-intgen_t
+int
 recons_test( int howmany )
 {
 	int fd, i, rval = 1;
+	off64_t off = 0;
 	
 	ses sarr[ SESLIM];
 	
@@ -90,14 +97,16 @@ recons_test( int howmany )
 	
 	for ( i=0; i<howmany && i < SESLIM; i++ ){
 		rval = get_invtrecord( fd, &sarr[i], 
-				       sizeof( uuid_t ) + sizeof( size_t ), 0,
-				       SEEK_CUR, BOOL_FALSE );
-		ASSERT( rval > 0 );
-		ASSERT( sarr[i].sz > 0 );
-		sarr[i].buf = calloc( 1,  sarr[i].sz );
-		rval = get_invtrecord( fd, sarr[i].buf,  sarr[i].sz, 0, SEEK_CUR,
+				       sizeof( uuid_t ) + sizeof( size_t ), off,
 				       BOOL_FALSE );
-		ASSERT( rval > 0 );
+		assert( rval > 0 );
+		assert( sarr[i].sz > 0 );
+		sarr[i].buf = calloc( 1,  sarr[i].sz );
+		off += (off64_t)(sizeof(uuid_t) + sizeof(size_t));
+		rval = get_invtrecord( fd, sarr[i].buf,  sarr[i].sz, off,
+				       BOOL_FALSE );
+		assert( rval > 0 );
+		off += sarr[i].sz;
 	}
 	
 	
@@ -115,7 +124,7 @@ recons_test( int howmany )
 
 
 
-intgen_t
+int
 delete_test( int n )
 {
 	int fd, i;
@@ -126,8 +135,7 @@ delete_test( int n )
 	fd = open( "moids", O_RDONLY );
 	if ( fd < 0 ) return -1;
 	
-	get_invtrecord( fd, &moid, sizeof(uuid_t), (n-1)* sizeof( uuid_t),
-		        SEEK_SET, 0 );
+	get_invtrecord( fd, &moid, sizeof(uuid_t), (n-1)* sizeof( uuid_t), 0 );
 	uuid_to_string( &moid, &str, &stat );
 	printf("Searching for Moid = %s\n", str );
 	free( str );
@@ -140,7 +148,7 @@ delete_test( int n )
 int
 sess_queries_byuuid(char *uu)
 {
-	u_int stat;
+	uint stat;
 	uuid_t uuid;
 	inv_session_t *ses;
 	invt_pr_ctx_t prctx;
@@ -184,7 +192,7 @@ sess_queries_bylabel(char *lab)
 }
 
 
-intgen_t
+int
 query_test( int level )
 {
 	int i;
@@ -240,7 +248,7 @@ query_test( int level )
 /*                                                                      */
 /*----------------------------------------------------------------------*/
 
-intgen_t
+int
 write_test( int nsess, int nstreams, int nmedia, int dumplevel )
 {
 	int i,j,k,m,fd;
@@ -257,15 +265,19 @@ write_test( int nsess, int nstreams, int nmedia, int dumplevel )
 	char strbuf[128];
 	void *bufp;
 	size_t sz;
+#ifdef RECONS
 	int rfd;
+	off64_t off;
+	struct stat64 statbuf;
+#endif
 
 #ifdef FIRSTTIME
 	printf("first time!\n");
 	for (i=0; i<8; i++) {
 		uuid_create( &fsidarr[i], &stat );
-		ASSERT ( stat == uuid_s_ok );
+		assert ( stat == uuid_s_ok );
 		uuid_create( &sesidarr[i], &stat );
-		ASSERT ( stat == uuid_s_ok );
+		assert ( stat == uuid_s_ok );
 	}
 	fd = open( "uuids", O_RDWR | O_CREAT );
 	PUT_REC(fd, (void *)fsidarr, sizeof (uuid_t) * 8, 0L );
@@ -279,6 +291,11 @@ write_test( int nsess, int nstreams, int nmedia, int dumplevel )
 #ifdef RECONS
 	rfd = open( sesfile, O_RDWR | O_CREAT );
 	fchmod( rfd, INV_PERMS );
+	if (fstat64(fd, &statbuf) < 0) {
+		perror("fstat64 session file");
+		return -1;
+	}
+	off = (off64_t)statbuf.st_size;
 #endif
 
 	for ( i = 0; i < nsess; i++ ) {
@@ -289,7 +306,7 @@ write_test( int nsess, int nstreams, int nmedia, int dumplevel )
 		dev = dev_str[7];
 		fsidp = &fsidarr[0]; /* j */
 		tok1 = inv_open( INV_BY_UUID, INV_SEARCH_N_MOD, fsidp );
-		ASSERT (tok1 != INV_TOKEN_NULL );
+		assert (tok1 != INV_TOKEN_NULL );
 
 		uuid_create( &labelid, &stat );
 		uuid_to_string( &labelid, &str, &stat );
@@ -306,10 +323,10 @@ write_test( int nsess, int nstreams, int nmedia, int dumplevel )
 					     dumplevel, nstreams, 
 					     time(NULL),
 					     mnt, dev );
-		ASSERT (tok2 != INV_TOKEN_NULL );
+		assert (tok2 != INV_TOKEN_NULL );
 		for (m = 0; m<nstreams; m++) {
 			tok3 = inv_stream_open( tok2,"/dev/rmt");
-			ASSERT (tok3 != INV_TOKEN_NULL );
+			assert (tok3 != INV_TOKEN_NULL );
 
 			for (k = 0; k<nmedia; k++ )
 				CREAT_mfiles( tok3, &labelid, k*100,
@@ -319,12 +336,13 @@ write_test( int nsess, int nstreams, int nmedia, int dumplevel )
 	
 #ifdef RECONS
 		if (inv_get_sessioninfo( tok2, &bufp, &sz ) == BOOL_TRUE ) {
-		      put_invtrecord( rfd, fsidp, sizeof( uuid_t ), 0, 
-				        SEEK_END, BOOL_FALSE );
-			
-			put_invtrecord( rfd, &sz, sizeof( size_t ), 0,
-				        SEEK_END, BOOL_FALSE); 
-			put_invtrecord( rfd, bufp, sz, 0, SEEK_END, BOOL_FALSE );
+			put_invtrecord( rfd, fsidp, sizeof( uuid_t ), off,
+					BOOL_FALSE );
+			off += (off64_t)sizeof(uuid_t);
+			put_invtrecord( rfd, &sz, sizeof( size_t ), off,
+					BOOL_FALSE);
+			off += (off64_t)sizeof(size_t);
+			put_invtrecord( rfd, bufp, sz, off, BOOL_FALSE );
 		}
 #endif
 #ifdef NOTDEF
@@ -353,7 +371,7 @@ mp_test(int nstreams)
 {
 #if 0
 	tok1 = inv_open( INV_BY_UUID, fsidp );
-	ASSERT (tok1 != INV_TOKEN_NULL );
+	assert (tok1 != INV_TOKEN_NULL );
 
 	tok2 = inv_writesession_open(tok1, fsidp,
 				     &labelid,
@@ -363,11 +381,11 @@ mp_test(int nstreams)
 				     dumplevel, nstreams, 
 				     time(NULL),
 				     mnt, dev );
-	ASSERT (tok2 != INV_TOKEN_NULL );
+	assert (tok2 != INV_TOKEN_NULL );
 
 	for (m = 0; m<nstreams; m++) {
 			tok3 = inv_stream_open( tok2,"/dev/rmt");
-			ASSERT (tok3 != INV_TOKEN_NULL );
+			assert (tok3 != INV_TOKEN_NULL );
 
 			for (k = 0; k<nmedia; k++ )
 				CREAT_mfiles( tok3, &labelid, k*100,
@@ -399,7 +417,7 @@ main(int argc, char *argv[])
 
 	progname = argv[0];
 	sesfile = "sessions";
-	ASSERT( argc > 1 );
+	assert( argc > 1 );
 	
 	mlog_init( argc, argv );
 

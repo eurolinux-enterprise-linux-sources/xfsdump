@@ -16,9 +16,8 @@
  * Inc.,  51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
-#include <xfs/xfs.h>
-#include <xfs/jdm.h>
-
+#include <unistd.h>
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/prctl.h>
 #include <time.h>
@@ -30,12 +29,19 @@
 #include <sys/ioctl.h>
 #include <sys/quota.h>
 #include <malloc.h>
+#include <assert.h>
+#include <string.h>
+#include <uuid/uuid.h>
 
+#include <xfs/xfs.h>
+#include <xfs/jdm.h>
 #ifdef linux
 #include <xfs/xqm.h>
 #endif
 
 #include <attr/attributes.h>
+
+#include "config.h"
 
 #include "hsmapi.h"
 
@@ -193,9 +199,9 @@ struct extent_group_context {
 	getbmapx_t eg_bmap[ BMAP_LEN ];
 	getbmapx_t *eg_nextbmapp;	/* ptr to the next extent to dump */
 	getbmapx_t *eg_endbmapp;		/* to detect extent exhaustion */
-	intgen_t eg_fd;			/* file desc. */
-	intgen_t eg_bmapix;		/* debug info only, not used */
-	intgen_t eg_gbmcnt;		/* debug, counts getbmapx calls for ino*/
+	int eg_fd;			/* file desc. */
+	int eg_bmapix;		/* debug info only, not used */
+	int eg_gbmcnt;		/* debug, counts getbmapx calls for ino*/
 };
 
 typedef struct extent_group_context extent_group_context_t;
@@ -260,11 +266,11 @@ static rv_t dump_dirs( ix_t strmix,
 		       void *inomap_contextp );
 static rv_t dump_dir( ix_t strmix,
 		      jdm_fshandle_t *,
-		      intgen_t,
+		      int,
 		      xfs_bstat_t * );
 static rv_t dump_file( void *,
 		       jdm_fshandle_t *,
-		       intgen_t,
+		       int,
 		       xfs_bstat_t * );
 static rv_t dump_file_reg( drive_t *drivep,
 			   context_t *contextp,
@@ -280,7 +286,7 @@ static rv_t dump_filehdr( drive_t *drivep,
 			  context_t *contextp,
 			  xfs_bstat_t *,
 			  off64_t,
-			  intgen_t );
+			  int );
 static rv_t dump_extenthdr( drive_t *drivep,
 			    context_t *contextp,
 			    int32_t,
@@ -330,7 +336,7 @@ static rv_t Media_mfile_end( drive_t *drivep,
 			     bool_t hit_eom );
 static bool_t Media_prompt_overwrite( drive_t *drivep );
 static rv_t Media_erasechk( drive_t *drivep,
-			    intgen_t dcaps,
+			    int dcaps,
 			    bool_t intr_allowed,
 			    bool_t prevmediapresentpr );
 static bool_t Media_prompt_erase( drive_t *drivep );
@@ -357,7 +363,7 @@ static char *dump_extattr_buildrecord( xfs_bstat_t *statp,
 				       char *dumpbufp,
 				       char *dumpbufendp,
 				       char *namesrcp,
-				       u_int32_t valuesz,
+				       uint32_t valuesz,
 				       int flag,
 				       char **valuepp );
 static rv_t dump_extattrhdr( drive_t *drivep,
@@ -366,7 +372,7 @@ static rv_t dump_extattrhdr( drive_t *drivep,
 			     size_t recsz,
 			     size_t valoff,
 			     ix_t flags,
-			     u_int32_t valsz );
+			     uint32_t valsz );
 
 static bool_t save_quotas( char *mntpnt,
 			   quota_info_t *quotainfo );
@@ -379,8 +385,8 @@ static int getxfsqstat( char *fsdev );
 bool_t content_media_change_needed;
 char *media_change_alert_program = NULL;
 hsm_fs_ctxt_t *hsm_fs_ctxtp = NULL;
-u_int64_t hdr_mfilesz = 0;
-u_int64_t maxdumpfilesize = 0;
+uint64_t hdr_mfilesz = 0;
+uint64_t maxdumpfilesize = 0;
 bool_t allowexcludefiles_pr = BOOL_FALSE;
 
 /* definition of locally defined static variables *****************************/
@@ -505,7 +511,7 @@ static bool_t create_inv_session(
 		size_t strmix);
 
 bool_t
-content_init( intgen_t argc,
+content_init( int argc,
 	      char *argv[ ],
 	      global_hdr_t *gwhdrtemplatep )
 {
@@ -538,39 +544,39 @@ content_init( intgen_t argc,
 	bool_t samepartialpr = BOOL_FALSE;
 	bool_t sameinterruptedpr = BOOL_FALSE;
 	size_t strmix;
-	intgen_t c;
-	intgen_t i;
-	intgen_t qstat;
-	intgen_t rval;
+	int c;
+	int i;
+	int qstat;
+	int rval;
 	bool_t ok;
 	extern char *optarg;
 	extern int optind, opterr, optopt;
 	char *baseuuidstr = NULL;
 	uuid_t baseuuid;
 	bool_t baseuuidvalpr;
-	u_int64_t dircnt;
-	u_int64_t nondircnt;
-	u_int64_t datasz;
-	u_int64_t inocnt;
-	u_int64_t inomapsz;
-	u_int64_t direntsz;
-	u_int64_t filesz;
-	u_int64_t size_estimate;
+	uint64_t dircnt;
+	uint64_t nondircnt;
+	uint64_t datasz;
+	uint64_t inocnt;
+	uint64_t inomapsz;
+	uint64_t direntsz;
+	uint64_t filesz;
+	uint64_t size_estimate;
 
 	/* basic sanity checks
 	 */
-	ASSERT( sizeof( mode_t ) == MODE_SZ );
-	ASSERT( sizeof( timestruct_t ) == TIMESTRUCT_SZ );
-	ASSERT( sizeof( bstat_t ) == BSTAT_SZ );
-	ASSERT( sizeof( filehdr_t ) == FILEHDR_SZ );
-	ASSERT( sizeof( extenthdr_t ) == EXTENTHDR_SZ );
-	ASSERT( sizeof( direnthdr_t ) == DIRENTHDR_SZ );
-	ASSERT( sizeof( direnthdr_v1_t ) == DIRENTHDR_SZ );
-	ASSERT( DIRENTHDR_SZ % DIRENTHDR_ALIGN == 0 );
-	ASSERT( sizeofmember( content_hdr_t, ch_specific )
+	assert( sizeof( mode_t ) == MODE_SZ );
+	assert( sizeof( timestruct_t ) == TIMESTRUCT_SZ );
+	assert( sizeof( bstat_t ) == BSTAT_SZ );
+	assert( sizeof( filehdr_t ) == FILEHDR_SZ );
+	assert( sizeof( extenthdr_t ) == EXTENTHDR_SZ );
+	assert( sizeof( direnthdr_t ) == DIRENTHDR_SZ );
+	assert( sizeof( direnthdr_v1_t ) == DIRENTHDR_SZ );
+	assert( DIRENTHDR_SZ % DIRENTHDR_ALIGN == 0 );
+	assert( sizeofmember( content_hdr_t, ch_specific )
 		>=
 		sizeof( content_inode_hdr_t ));
-	ASSERT( sizeof( extattrhdr_t ) == EXTATTRHDR_SZ );
+	assert( sizeof( extattrhdr_t ) == EXTATTRHDR_SZ );
 
 	/* calculate offsets of portions of the write hdr template
 	 */
@@ -737,20 +743,20 @@ content_init( intgen_t argc,
 	 */
 	if ( subtreecnt ) {
 		subtreep = ( char ** )calloc( subtreecnt, sizeof( char * ));
-		ASSERT( subtreep );
+		assert( subtreep );
 		optind = 1;
 		opterr = 0;
 		subtreeix = 0;
 		while ( ( c = getopt( argc, argv, GETOPT_CMDSTRING )) != EOF ) {
 			switch ( c ) {
 			case GETOPT_SUBTREE:
-				ASSERT( subtreeix < subtreecnt );
-				ASSERT( optarg && optarg[ 0 ] != '-' );
+				assert( subtreeix < subtreecnt );
+				assert( optarg && optarg[ 0 ] != '-' );
 				subtreep[ subtreeix++ ] = optarg;
 				break;
 			}
 		}
-		ASSERT( subtreeix == subtreecnt );
+		assert( subtreeix == subtreecnt );
 	} else {
 		subtreep = 0;
 	}
@@ -872,7 +878,7 @@ content_init( intgen_t argc,
 		sameinterruptedpr = BOOL_FALSE;
 		interruptedpr = BOOL_FALSE;
 
-		ok = inv_get_session_byuuid( &baseuuid, &sessp );
+		ok = inv_get_session_byuuid(&fsid, &baseuuid, &sessp);
 		if ( ! ok ) {
 			mlog( MLOG_NORMAL | MLOG_ERROR, _(
 			      "could not find specified base dump (%s) "
@@ -900,7 +906,7 @@ content_init( intgen_t argc,
 			sc_resumerangecnt =  ( size_t )sessp->s_nstreams;
 			sc_resumerangep = ( drange_t * )calloc( sc_resumerangecnt,
 								sizeof( drange_t ));
-			ASSERT( sc_resumerangep );
+			assert( sc_resumerangep );
 			for ( strmix = 0 ; strmix < sc_resumerangecnt ; strmix++ ) {
 				inv_stream_t *bsp;
 				inv_stream_t *esp;
@@ -966,7 +972,7 @@ content_init( intgen_t argc,
 		inv_free_session( &sessp );
 		sessp = 0;
 		ok = inv_close( inv_idbt );
-		ASSERT( ok );
+		assert( ok );
 		inv_idbt = INV_TOKEN_NULL;
 		goto baseuuidbypass;
 	}
@@ -983,9 +989,10 @@ content_init( intgen_t argc,
 			      "online inventory not available\n") );
 			return BOOL_FALSE;
 		}
-		ok = inv_lastsession_level_lessthan( inv_idbt,
-						     ( u_char_t )sc_level,
-						     &sessp );
+		ok = inv_lastsession_level_lessthan(&fsid,
+						    inv_idbt,
+						    (u_char_t)sc_level,
+						    &sessp);
 		if ( ! ok ) {
 			sessp = 0;
 		}
@@ -1022,11 +1029,12 @@ content_init( intgen_t argc,
 	if ( inv_idbt != INV_TOKEN_NULL ) {
 		/* REFERENCED */
 		bool_t ok1;
-		ok = inv_lastsession_level_equalto( inv_idbt,
-						    ( u_char_t )sc_level,
-						    &sessp );
+		ok = inv_lastsession_level_equalto(&fsid,
+						   inv_idbt,
+						   (u_char_t)sc_level,
+						   &sessp);
 		ok1 = inv_close( inv_idbt );
-		ASSERT( ok1 );
+		assert( ok1 );
 		if ( ! ok ) {
 			sessp = 0;
 		}
@@ -1044,7 +1052,7 @@ content_init( intgen_t argc,
 		sc_resumerangecnt =  ( size_t )sessp->s_nstreams;
 		sc_resumerangep = ( drange_t * )calloc( sc_resumerangecnt,
 						        sizeof( drange_t ));
-		ASSERT( sc_resumerangep );
+		assert( sc_resumerangep );
 		for ( strmix = 0 ; strmix < sc_resumerangecnt ; strmix++ ) {
 			inv_stream_t *bsp;
 			inv_stream_t *esp;
@@ -1117,8 +1125,8 @@ baseuuidbypass:
 		samefoundpr = BOOL_FALSE;
 	}
 	if ( underfoundpr ) {
-		ASSERT( underlevel <= LEVEL_MAX );
-		ASSERT( undertime );
+		assert( underlevel <= LEVEL_MAX );
+		assert( undertime );
 		if ( samefoundpr ) {
 			if ( undertime >= sametime ) {
 				if ( underinterruptedpr ) {
@@ -1155,7 +1163,7 @@ baseuuidbypass:
 				sc_incrbaselevel = underlevel;
 				uuid_copy(sc_incrbaseid, underid);
 				sc_resumepr = BOOL_FALSE;
-				ASSERT( sc_resumerangep );
+				assert( sc_resumerangep );
 				free( ( void * )sc_resumerangep );
 				sc_resumerangep = 0;
 			} else {
@@ -1177,14 +1185,14 @@ baseuuidbypass:
 					      sc_level,
 					      sc_level );
 				}
-				ASSERT( sametime );
+				assert( sametime );
 				sc_incrpr = BOOL_TRUE;
 				sc_incrbasetime = undertime;
 				sc_incrbaselevel = underlevel;
 				sc_resumepr = BOOL_TRUE;
 				sc_resumebasetime = sametime;
 				uuid_copy(sc_resumebaseid, sameid);
-				ASSERT( sc_resumerangep );
+				assert( sc_resumerangep );
 			}
 		} else {
 			if ( underinterruptedpr ) {
@@ -1221,11 +1229,11 @@ baseuuidbypass:
 			sc_incrbaselevel = underlevel;
 			uuid_copy(sc_incrbaseid, underid);
 			sc_resumepr = BOOL_FALSE;
-			ASSERT( ! sc_resumerangep );
+			assert( ! sc_resumerangep );
 		}
 	} else {
 		if ( samefoundpr ) {
-			ASSERT( sametime );
+			assert( sametime );
 			if ( subtreecnt && ! samepartialpr ) {
 				mlog( MLOG_NORMAL | MLOG_WARNING, _(
 				      "level %u "
@@ -1248,11 +1256,11 @@ baseuuidbypass:
 			sc_resumepr = BOOL_TRUE;
 			sc_resumebasetime = sametime;
 			uuid_copy(sc_resumebaseid, sameid);
-			ASSERT( sc_resumerangep );
+			assert( sc_resumerangep );
 		} else {
 			sc_incrpr = BOOL_FALSE;
 			sc_resumepr = BOOL_FALSE;
-			ASSERT( ! sc_resumerangep );
+			assert( ! sc_resumerangep );
 			if ( sc_level > 0 ) {
 				mlog( MLOG_NORMAL | MLOG_ERROR, _(
 				      "cannot find earlier dump "
@@ -1292,9 +1300,9 @@ baseuuidbypass:
 			char incrtimestr[ 30 ];
 
 			strcpy( restimestr, ctimennl( &sc_resumebasetime ));
-			ASSERT( strlen( restimestr ) < sizeof( restimestr ));
+			assert( strlen( restimestr ) < sizeof( restimestr ));
 			strcpy( incrtimestr, ctimennl( &sc_incrbasetime ));
-			ASSERT( strlen( incrtimestr ) < sizeof( incrtimestr ));
+			assert( strlen( incrtimestr ) < sizeof( incrtimestr ));
 
 			mlog( MLOG_VERBOSE, _(
 			      "resuming level %d incremental dump of %s:%s "
@@ -1373,10 +1381,17 @@ baseuuidbypass:
 	}
 
 	/* figure out the ino for the root directory of the fs
-	 * and get its xfs_bstat_t for inomap_build()
+	 * and get its xfs_bstat_t for inomap_build().  This could
+	 * be a bind mount; don't ask for the mount point inode,
+	 * find the actual lowest inode number in the filesystem.
 	 */
 	{
 		stat64_t rootstat;
+		xfs_ino_t lastino = 0;
+		int ocount = 0;
+		xfs_fsop_bulkreq_t bulkreq;
+
+		/* Get the inode of the mount point */
 		rval = fstat64( sc_fsfd, &rootstat );
 		if ( rval ) {
 			mlog( MLOG_NORMAL, _(
@@ -1386,13 +1401,23 @@ baseuuidbypass:
 		}
 		sc_rootxfsstatp =
 			( xfs_bstat_t * )calloc( 1, sizeof( xfs_bstat_t ));
-		ASSERT( sc_rootxfsstatp );
+		assert( sc_rootxfsstatp );
 
-		if ( bigstat_one( sc_fsfd, rootstat.st_ino, sc_rootxfsstatp) < 0 ) {
+		/* Get the first valid (i.e. root) inode in this fs */
+		bulkreq.lastip = (__u64 *)&lastino;
+		bulkreq.icount = 1;
+		bulkreq.ubuffer = sc_rootxfsstatp;
+		bulkreq.ocount = &ocount;
+		if (ioctl(sc_fsfd, XFS_IOC_FSBULKSTAT, &bulkreq) < 0) {
 			mlog( MLOG_ERROR,
 			      _("failed to get bulkstat information for root inode\n"));
 			return BOOL_FALSE;
 		}
+
+		if (sc_rootxfsstatp->bs_ino != rootstat.st_ino)
+			mlog ( MLOG_NORMAL | MLOG_NOTE,
+			       _("root ino %lld differs from mount dir ino %lld, bind mount?\n"),
+			         sc_rootxfsstatp->bs_ino, rootstat.st_ino);
 	}
 	
 	/* alloc a file system handle, to be used with the jdm_open()
@@ -1431,7 +1456,7 @@ baseuuidbypass:
 	sc_stat_inomapcnt = ( size64_t )fs_getinocnt( mntpnt );
 
 	sc_startptp = ( startpt_t * )calloc( drivecnt, sizeof( startpt_t ));
-	ASSERT( sc_startptp );
+	assert( sc_startptp );
 	ok = inomap_build( sc_fshandlep,
 			   sc_fsfd,
 			   sc_rootxfsstatp,
@@ -1465,7 +1490,7 @@ baseuuidbypass:
 	 * an inomap for each media file. the dirdump flag will be set
 	 * in content_stream_dump() for streams which dump the directories.
 	 */
-	ASSERT( sizeof( cwhdrtemplatep->ch_specific ) >= sizeof( *scwhdrtemplatep ));
+	assert( sizeof( cwhdrtemplatep->ch_specific ) >= sizeof( *scwhdrtemplatep ));
 	scwhdrtemplatep->cih_mediafiletype = CIH_MEDIAFILETYPE_DATA;
 	scwhdrtemplatep->cih_level = ( int32_t )sc_level;
 	scwhdrtemplatep->cih_dumpattr = CIH_DUMPATTR_INOMAP;
@@ -1509,8 +1534,8 @@ baseuuidbypass:
 	datasz = scwhdrtemplatep->cih_inomap_datasz;
 	inocnt = dircnt + nondircnt;
 	inomapsz = inomap_getsz( );
-	direntsz = inocnt * ( u_int64_t )( DIRENTHDR_SZ + 8 );
-	filesz = inocnt * ( u_int64_t )( FILEHDR_SZ + EXTENTHDR_SZ );
+	direntsz = inocnt * ( uint64_t )( DIRENTHDR_SZ + 8 );
+	filesz = inocnt * ( uint64_t )( FILEHDR_SZ + EXTENTHDR_SZ );
 
 	hdr_mfilesz =	GLOBAL_HDR_SZ
 			+
@@ -1551,17 +1576,17 @@ baseuuidbypass:
 	/* allocate and populate per-stream context descriptors
 	 */
 	sc_contextp = ( context_t * )calloc( drivecnt, sizeof( context_t ));
-	ASSERT( sc_contextp );
+	assert( sc_contextp );
 	for ( strmix = 0 ; strmix < drivecnt ; strmix++ ) {
 		context_t *contextp = &sc_contextp[ strmix ];
 
 		contextp->cc_filehdrp =
 				( filehdr_t * )calloc( 1, sizeof( filehdr_t ));
-		ASSERT( contextp->cc_filehdrp );
+		assert( contextp->cc_filehdrp );
 
 		contextp->cc_extenthdrp =
 			    ( extenthdr_t * )calloc( 1, sizeof( extenthdr_t ));
-		ASSERT( contextp->cc_extenthdrp );
+		assert( contextp->cc_extenthdrp );
 
 		contextp->cc_getdentsbufsz = sizeof( struct dirent )
 					       +
@@ -1571,7 +1596,7 @@ baseuuidbypass:
 		}
 		contextp->cc_getdentsbufp =
 			   ( char * ) calloc( 1, contextp->cc_getdentsbufsz );
-		ASSERT( contextp->cc_getdentsbufp );
+		assert( contextp->cc_getdentsbufp );
 
 		contextp->cc_mdirentbufsz = sizeof( direnthdr_t  )
 					    +
@@ -1580,7 +1605,7 @@ baseuuidbypass:
 					    DIRENTHDR_ALIGN;
 		contextp->cc_mdirentbufp =
 			   ( char * ) calloc( 1, contextp->cc_mdirentbufsz );
-		ASSERT( contextp->cc_mdirentbufp );
+		assert( contextp->cc_mdirentbufp );
 
 		contextp->cc_extattrlistbufsz = EXTATTR_LISTBUF_SZ;
 		contextp->cc_extattrrtrvarraylen = EXTATTR_RTRVARRAY_LEN;
@@ -1590,15 +1615,15 @@ baseuuidbypass:
 		}
 		contextp->cc_extattrlistbufp =
 			   ( char * )calloc( 1, contextp->cc_extattrlistbufsz );
-		ASSERT( contextp->cc_extattrlistbufp );
+		assert( contextp->cc_extattrlistbufp );
 		contextp->cc_extattrrtrvarrayp =
 		  ( attr_multiop_t * )calloc( contextp->cc_extattrrtrvarraylen,
 				    sizeof( attr_multiop_t ));
-		ASSERT( contextp->cc_extattrrtrvarrayp );
+		assert( contextp->cc_extattrrtrvarrayp );
 		contextp->cc_extattrdumpbufp =
 			   ( char * )memalign( sizeof( extattrhdr_t ),
 					       contextp->cc_extattrdumpbufsz );
-		ASSERT( contextp->cc_extattrdumpbufp );
+		assert( contextp->cc_extattrdumpbufp );
 		if (hsm_fs_ctxtp) {
 			contextp->cc_hsm_f_ctxtp = HsmAllocateFileContext(
 				hsm_fs_ctxtp);
@@ -1609,7 +1634,7 @@ baseuuidbypass:
 		contextp->cc_readlinkbufsz = MAXPATHLEN + SYMLINK_ALIGN;
 		contextp->cc_readlinkbufp =
 			   ( char * ) calloc( 1, contextp->cc_readlinkbufsz );
-		ASSERT( contextp->cc_readlinkbufp );
+		assert( contextp->cc_readlinkbufp );
 
 		contextp->cc_inomap_contextp = inomap_alloc_context( );
 	}
@@ -1768,7 +1793,7 @@ content_statline( char **linespp[ ] )
 				 (unsigned long long)sc_stat_inomapdone,
 				 (unsigned long long)sc_stat_inomapcnt,
 				 elapsed );
-			ASSERT( strlen( statline[ 0 ] ) < STATLINESZ );
+			assert( strlen( statline[ 0 ] ) < STATLINESZ );
 		} else {
 			sprintf( statline[ 0 ],
 				 "status at %02d:%02d:%02d: "
@@ -1782,7 +1807,7 @@ content_statline( char **linespp[ ] )
 				 (unsigned long long)sc_stat_inomapdone,
 				 (unsigned long long)sc_stat_inomapcnt,
 				 elapsed );
-			ASSERT( strlen( statline[ 0 ] ) < STATLINESZ );
+			assert( strlen( statline[ 0 ] ) < STATLINESZ );
 		}
 		return 1;
 	}
@@ -1833,7 +1858,7 @@ content_statline( char **linespp[ ] )
 				elapsed );
 	}
 
-	ASSERT( strlen( statline[ 0 ] ) < STATLINESZ );
+	assert( strlen( statline[ 0 ] ) < STATLINESZ );
 
 	/* optionally create stat lines for each drive
 	 */
@@ -1881,7 +1906,7 @@ content_statline( char **linespp[ ] )
 		sprintf( &statline[ statlinecnt ]
 				  [ strlen( statline[ statlinecnt ] ) ],
 			 "\n" );
-		ASSERT( strlen( statline[ statlinecnt ] ) < STATLINESZ );
+		assert( strlen( statline[ statlinecnt ] ) < STATLINESZ );
 		statlinecnt++;
 	}
 
@@ -1897,13 +1922,13 @@ create_inv_session(
 		ix_t subtreecnt,
 		size_t strmix)
 {
-	intgen_t rval;
+	int rval;
 	char *qmntpnt;
 	char *qfsdevice;
 
 	/* create a cleanup handler to close the inventory on exit. */
 	rval = atexit( inv_cleanup );
-	ASSERT( ! rval );
+	assert( ! rval );
 
 	sc_inv_idbtoken = inv_open( ( inv_predicate_t )INV_BY_UUID,
 					INV_SEARCH_N_MOD,
@@ -1913,12 +1938,12 @@ create_inv_session(
 	}
 	qmntpnt = ( char * )calloc( 1, strlen( gwhdrtemplatep->gh_hostname )
 					+ 1 + strlen( mntpnt ) + 1 );
-	ASSERT( qmntpnt );
-	ASSERT( strlen( gwhdrtemplatep->gh_hostname ));
+	assert( qmntpnt );
+	assert( strlen( gwhdrtemplatep->gh_hostname ));
 	sprintf( qmntpnt, "%s:%s", gwhdrtemplatep->gh_hostname, mntpnt );
 	qfsdevice = ( char * )calloc( 1, strlen( gwhdrtemplatep->gh_hostname )
 					 + 1 + strlen( fsdevice ) + 1 );
-	ASSERT( qfsdevice );
+	assert( qfsdevice );
 	sprintf( qfsdevice, "%s:%s", gwhdrtemplatep->gh_hostname, fsdevice );
 
 	sc_inv_sestoken = inv_writesession_open( sc_inv_idbtoken,
@@ -1941,7 +1966,7 @@ create_inv_session(
 	*/
 	sc_inv_stmtokenp = ( inv_stmtoken_t * )
 				calloc( drivecnt, sizeof( inv_stmtoken_t ));
-	ASSERT( sc_inv_stmtokenp );
+	assert( sc_inv_stmtokenp );
 	for ( strmix = 0 ; strmix < drivecnt ; strmix++ ) {
 		drive_t *drivep = drivepp[ strmix ];
 		char *drvpath;
@@ -1969,7 +1994,7 @@ mark_set( drive_t *drivep, xfs_ino_t ino, off64_t offset, int32_t flags )
 {
 	drive_ops_t *dop = drivep->d_opsp;
 	mark_t *markp = ( mark_t * )calloc( 1, sizeof( mark_t ));
-	ASSERT( markp );
+	assert( markp );
 
 	if ( flags & STARTPT_FLAGS_NULL ) {
 		mlog( MLOG_DEBUG,
@@ -2078,7 +2103,7 @@ mark_callback( void *p, drive_markrec_t *dmp, bool_t committed )
 
 /* begin - called by stream process to invoke the dump stream
  */
-intgen_t
+int
 content_stream_dump( ix_t strmix )
 {
 	context_t *contextp = &sc_contextp[ strmix ];
@@ -2095,22 +2120,22 @@ content_stream_dump( ix_t strmix )
 	inv_stmtoken_t inv_stmt;
 	xfs_bstat_t *bstatbufp;
 	const size_t bstatbuflen = BSTATBUFLEN;
-	intgen_t rval;
+	int rval;
 	rv_t rv;
 
 	/* sanity checks
 	 */
-	ASSERT( RV_OK == 0 ); /* bigstat_iter depends on this */
+	assert( RV_OK == 0 ); /* bigstat_iter depends on this */
 
 	/* allocate a buffer for use by bstat_iter
 	 */
 	bstatbufp = ( xfs_bstat_t * )calloc( bstatbuflen,
 					     sizeof( xfs_bstat_t ));
-	ASSERT( bstatbufp );
+	assert( bstatbufp );
 
 	/* allocate an inomap context */
 	inomap_contextp = inomap_alloc_context();
-	ASSERT( inomap_contextp );
+	assert( inomap_contextp );
 
 	/* determine if stream terminators will be used and are expected.
 	 * this will be revised each time a new media file is begun.
@@ -2251,7 +2276,7 @@ content_stream_dump( ix_t strmix )
 		if ( rv == RV_CORE ) {
 			return mlog_exit(EXIT_FAULT, rv);
 		}
-		ASSERT( rv == RV_OK );
+		assert( rv == RV_OK );
 		if ( rv != RV_OK ) {
 			return mlog_exit(EXIT_FAULT, rv);
 		}
@@ -2296,7 +2321,7 @@ content_stream_dump( ix_t strmix )
 			free( ( void * )bstatbufp );
 			return mlog_exit(EXIT_FAULT, rv);
 		}
-		ASSERT( rv == RV_OK );
+		assert( rv == RV_OK );
 		if ( rv != RV_OK ) {
 			free( ( void * )bstatbufp );
 			return mlog_exit(EXIT_FAULT, rv);
@@ -2332,7 +2357,7 @@ content_stream_dump( ix_t strmix )
 				free( ( void * )bstatbufp );
 				return mlog_exit(EXIT_FAULT, rv);
 			}
-			ASSERT( rv == RV_OK );
+			assert( rv == RV_OK );
 			if ( rv != RV_OK ) {
 				free( ( void * )bstatbufp );
 				return mlog_exit(EXIT_FAULT, rv);
@@ -2360,7 +2385,7 @@ content_stream_dump( ix_t strmix )
 					     ( void * )strmix,
 					     inomap_next_nondir,
 					     inomap_contextp,
-					     ( intgen_t * )&rv,
+					     ( int * )&rv,
 					     pipeline ?
 					       (bool_t (*)(int))preemptchk : 0,
 					     bstatbufp,
@@ -2392,7 +2417,7 @@ content_stream_dump( ix_t strmix )
 				free( ( void * )bstatbufp );
 				return mlog_exit(EXIT_FAULT, rv);
 			}
-			ASSERT( rv == RV_OK || rv == RV_NOMORE );
+			assert( rv == RV_OK || rv == RV_NOMORE );
 			if ( rv != RV_OK && rv != RV_NOMORE ) {
 				free( ( void * )bstatbufp );
 				return mlog_exit(EXIT_FAULT, rv);
@@ -2555,7 +2580,7 @@ decision_more:
 			ok = inv_put_mediafile( inv_stmt,
 						&mwhdrp->mh_mediaid,
 						mwhdrp->mh_medialabel,
-					( u_intgen_t )mwhdrp->mh_mediafileix,
+					( uint )mwhdrp->mh_mediafileix,
 						startino,
 						startoffset,
 						scwhdrp->cih_startpt.sp_ino,
@@ -2644,7 +2669,7 @@ content_complete( void )
 {
 	time_t elapsed;
 	bool_t completepr;
-	intgen_t i;
+	int i;
 
 	completepr = check_complete_flags( );
 
@@ -2735,7 +2760,7 @@ content_mediachange_query( void )
 	}
 	nochangeix = choicecnt;
 	choicestr[ choicecnt++ ] = "continue";
-	ASSERT( choicecnt <= CHOICEMAX );
+	assert( choicecnt <= CHOICEMAX );
 	responseix = dlog_multi_query( querystr,
 				       querycnt,
 				       choicestr,
@@ -2753,7 +2778,7 @@ content_mediachange_query( void )
 		clr_mcflag( choicetothrdmap[ responseix ].thrdix );
 		return "media change acknowledged\n";
 	}
-	ASSERT( responseix == nochangeix );
+	assert( responseix == nochangeix );
 	return "continuing\n";
 }
 
@@ -2761,7 +2786,7 @@ content_mediachange_query( void )
 static void
 update_cc_Media_useterminatorpr( drive_t *drivep, context_t *contextp )
 {
-	intgen_t dcaps = drivep->d_capabilities;
+	int dcaps = drivep->d_capabilities;
 
 	contextp->cc_Media_useterminatorpr = BOOL_TRUE;
 	if ( ! ( dcaps & DRIVE_CAP_FILES )) {
@@ -2797,7 +2822,7 @@ dump_dirs( ix_t strmix,
 		xfs_bstat_t *p;
 		xfs_bstat_t *endp;
 		__s32 buflenout;
-		intgen_t rval;
+		int rval;
 
 		if ( bulkstatcallcnt == 0 ) {
 			mlog( MLOG_VERBOSE, _(
@@ -2901,23 +2926,23 @@ dump_dirs( ix_t strmix,
 static rv_t
 dump_dir( ix_t strmix,
 	  jdm_fshandle_t *fshandlep,
-	  intgen_t fsfd,
+	  int fsfd,
 	  xfs_bstat_t *statp )
 {
 	context_t *contextp = &sc_contextp[ strmix ];
 	drive_t *drivep = drivepp[ strmix ];
 	void *inomap_contextp = contextp->cc_inomap_contextp;
-	intgen_t state;
-	intgen_t fd;
+	int state;
+	int fd;
 	struct dirent *gdp = ( struct dirent *)contextp->cc_getdentsbufp;
 	size_t gdsz = contextp->cc_getdentsbufsz;
-	intgen_t gdcnt;
+	int gdcnt;
 	gen_t gen;
 	rv_t rv;
 
 	/* no way this can be non-dir, but check anyway
 	 */
-	ASSERT( ( statp->bs_mode & S_IFMT ) == S_IFDIR );
+	assert( ( statp->bs_mode & S_IFMT ) == S_IFDIR );
 	if ( ( statp->bs_mode & S_IFMT ) != S_IFDIR ) {
 		return RV_OK;
 	}
@@ -3000,7 +3025,7 @@ dump_dir( ix_t strmix,
 	 */
 	for ( gdcnt = 1, rv = RV_OK ; rv == RV_OK ; gdcnt++ ) {
 		struct dirent *p;
-		intgen_t nread;
+		int nread;
 		register size_t reclen;
 
 		nread = getdents_wrap( fd, (char *)gdp, gdsz );
@@ -3038,8 +3063,8 @@ dump_dir( ix_t strmix,
 		      ;
 		      nread > 0
 		      ;
-		      nread -= ( intgen_t )reclen,
-		      ASSERT( nread >= 0 ),
+		      nread -= ( int )reclen,
+		      assert( nread >= 0 ),
 		      p = ( struct dirent * )( ( char * )p + reclen ),
 		      reclen = ( size_t )p->d_reclen ) {
 			xfs_ino_t ino;
@@ -3054,7 +3079,7 @@ dump_dir( ix_t strmix,
 			 * be null-terminated, but the record may have
 			 * padding after the null-termination.
 			 */
-			ASSERT( namelen < nameszmax );
+			assert( namelen < nameszmax );
 #endif
 
 			/* skip "." and ".."
@@ -3085,7 +3110,7 @@ dump_dir( ix_t strmix,
 			 */
 			if ( inomap_get_gen( NULL, p->d_ino, &gen) ) {
 				xfs_bstat_t statbuf;
-				intgen_t scrval;
+				int scrval;
 				
 				scrval = bigstat_one( fsfd,
 						      p->d_ino,
@@ -3253,7 +3278,7 @@ dump_extattr_list( drive_t *drivep,
 	char *dumpbufp;
 	char *endp;
 	size_t bufsz;
-	intgen_t rval = 0;
+	int rval = 0;
 	rv_t rv;
 	char *dumpbufendp = contextp->cc_extattrdumpbufp
 			    +
@@ -3261,7 +3286,7 @@ dump_extattr_list( drive_t *drivep,
 
 	/* sanity checks
 	 */
-	ASSERT( listp->al_count >= 0 );
+	assert( listp->al_count >= 0 );
 
 	/* fill up a retrieve array and build a dump buffer;
 	 * can run out of entries in the name list, space in the
@@ -3395,7 +3420,7 @@ dump_extattr_list( drive_t *drivep,
 		if (dumpbufp <= dumpbufendp)
 			continue;	/* no buffer overflow yet */
 
-		ASSERT( endp > contextp->cc_extattrdumpbufp );
+		assert( endp > contextp->cc_extattrdumpbufp );
 		bufsz = ( size_t )( endp - contextp->cc_extattrdumpbufp );
 
 		rval = write_buf( contextp->cc_extattrdumpbufp,
@@ -3437,7 +3462,7 @@ dump_extattr_list( drive_t *drivep,
 			char	*hsmnamep;
 			char	*hsmvaluep;
 			char	*valuep;
-			u_int32_t	hsmvaluesz;
+			uint32_t	hsmvaluesz;
 
 			if (!HsmAddNewAttribute(contextp->cc_hsm_f_ctxtp,
 						hsmcursor,
@@ -3474,7 +3499,7 @@ dump_extattr_list( drive_t *drivep,
 				continue;
 			}
 
-			ASSERT( endp > contextp->cc_extattrdumpbufp );
+			assert( endp > contextp->cc_extattrdumpbufp );
 			bufsz = ( size_t )( endp - contextp->cc_extattrdumpbufp );
 
 			rval = write_buf( contextp->cc_extattrdumpbufp,
@@ -3550,16 +3575,16 @@ dump_extattr_buildrecord( xfs_bstat_t *statp,
 			  char *dumpbufp,
 			  char *dumpbufendp,
 			  char *namesrcp,
-			  u_int32_t valuesz,
+			  uint32_t valuesz,
 			  int flag,
 			  char **valuepp )
 {
 	extattrhdr_t *ahdrp = ( extattrhdr_t * )dumpbufp;
 	char *namep = dumpbufp + EXTATTRHDR_SZ;
-	u_int32_t namelen = strlen( namesrcp );
-	u_int32_t namesz = namelen + 1;
+	uint32_t namelen = strlen( namesrcp );
+	uint32_t namesz = namelen + 1;
 	char *valuep = namep + namesz;
-	u_int32_t recsz = EXTATTRHDR_SZ + namesz + valuesz;
+	uint32_t recsz = EXTATTRHDR_SZ + namesz + valuesz;
 	extattrhdr_t tmpah;
 
 	recsz = ( recsz + ( EXTATTRHDR_ALIGN - 1 ))
@@ -3611,9 +3636,9 @@ dump_extattr_buildrecord( xfs_bstat_t *statp,
 
 	memset( ( void * )&tmpah, 0, sizeof( tmpah ));
 	tmpah.ah_sz = recsz;
-	ASSERT( EXTATTRHDR_SZ + namesz < UINT16MAX );
-	tmpah.ah_valoff = ( u_int16_t )( EXTATTRHDR_SZ + namesz );
-	tmpah.ah_flags = ( u_int16_t )
+	assert( EXTATTRHDR_SZ + namesz < UINT16MAX );
+	tmpah.ah_valoff = ( uint16_t )( EXTATTRHDR_SZ + namesz );
+	tmpah.ah_flags = ( uint16_t )
 		(( flag & ATTR_ROOT ) ? EXTATTRHDR_FLAGS_ROOT :
 		(( flag & ATTR_SECURE ) ? EXTATTRHDR_FLAGS_SECURE : 0));
 	tmpah.ah_valsz = valuesz;
@@ -3633,18 +3658,18 @@ dump_extattrhdr( drive_t *drivep,
 		 size_t recsz,
 		 size_t valoff,
 		 ix_t flags,
-		 u_int32_t valsz )
+		 uint32_t valsz )
 {
 	extattrhdr_t ahdr;
 	extattrhdr_t tmpahdr;
-	intgen_t rval;
+	int rval;
 	rv_t rv;
 
 	memset( ( void * )&ahdr, 0, sizeof( ahdr ));
 	ahdr.ah_sz = recsz;
-	ASSERT( valoff < UINT16MAX );
-	ahdr.ah_valoff = ( u_int16_t )valoff;
-	ahdr.ah_flags = ( u_int16_t )flags | EXTATTRHDR_FLAGS_CHECKSUM;
+	assert( valoff < UINT16MAX );
+	ahdr.ah_valoff = ( uint16_t )valoff;
+	ahdr.ah_flags = ( uint16_t )flags | EXTATTRHDR_FLAGS_CHECKSUM;
 	ahdr.ah_valsz = valsz;
 	ahdr.ah_checksum = calc_checksum( &ahdr, EXTATTRHDR_SZ );
 
@@ -3685,7 +3710,7 @@ dump_extattrhdr( drive_t *drivep,
 static rv_t
 dump_file( void *arg1,
 	   jdm_fshandle_t *fshandlep,
-	   intgen_t fsfd,
+	   int fsfd,
 	   xfs_bstat_t *statp )
 {
 	ix_t strmix = ( ix_t )arg1;
@@ -3700,7 +3725,7 @@ dump_file( void *arg1,
 	startpt_t *startptp = &scwhdrp->cih_startpt;
 	startpt_t *endptp = &scwhdrp->cih_endpt;
 	bool_t file_skipped = BOOL_FALSE;
-	intgen_t state;
+	int state;
 	rv_t rv;
 
 	/* skip if no links
@@ -3935,7 +3960,7 @@ dump_file_reg( drive_t *drivep,
 	 */
 	if ( statp->bs_ino == startptp->sp_ino ) {
 		offset = startptp->sp_offset;
-		ASSERT( ( offset & ( off64_t )( BBSIZE - 1 )) == 0 );
+		assert( ( offset & ( off64_t )( BBSIZE - 1 )) == 0 );
 	} else {
 		offset = 0;
 	}
@@ -3964,7 +3989,7 @@ dump_file_reg( drive_t *drivep,
 				break;
 			}
 		}
-		ASSERT( ( offset & ( off64_t )( BBSIZE - 1 )) == 0 );
+		assert( ( offset & ( off64_t )( BBSIZE - 1 )) == 0 );
 	}
 		
 	/* determine the offset within the file where the dump should end.
@@ -4032,7 +4057,7 @@ dump_file_reg( drive_t *drivep,
 		/* see if we are done.
 		 */
 		if ( cmpltflg ) {
-			ASSERT( rv == RV_OK );
+			assert( rv == RV_OK );
 			break;
 		}
 
@@ -4092,7 +4117,7 @@ dump_file_reg( drive_t *drivep,
 					&offset,
 					&bc,
 					&cmpltflg );
-		ASSERT( bc >= 0 );
+		assert( bc >= 0 );
 		bytecnt += bc;
 		if ( rv != RV_OK ) {
 			break;
@@ -4139,7 +4164,7 @@ dump_file_spec( drive_t *drivep,
 		jdm_fshandle_t *fshandlep,
 		xfs_bstat_t *statp )
 {
-	intgen_t rval;
+	int rval;
 	rv_t rv;
 
 	mlog( MLOG_TRACE,
@@ -4170,7 +4195,7 @@ dump_file_spec( drive_t *drivep,
 	 * the symlink pathname char string will always  be NULL-terminated.
 	 */
 	if ( ( statp->bs_mode & S_IFMT ) == S_IFLNK ) {
-		intgen_t nread;
+		int nread;
 		size_t extentsz;
 
 		/* read the link path. if error, dump a zero-length
@@ -4191,7 +4216,7 @@ dump_file_spec( drive_t *drivep,
 
 		/* null-terminate the string
 		 */
-		ASSERT( ( size_t )nread < contextp->cc_readlinkbufsz );
+		assert( ( size_t )nread < contextp->cc_readlinkbufsz );
 		contextp->cc_readlinkbufp[ nread ] = 0;
 
 		/* calculate the extent size - be sure to include room
@@ -4200,7 +4225,7 @@ dump_file_spec( drive_t *drivep,
 		extentsz = ( ( size_t )nread + 1 + ( SYMLINK_ALIGN - 1 ))
 			   &
 			   ~ ( SYMLINK_ALIGN - 1 );
-		ASSERT( extentsz <= contextp->cc_readlinkbufsz );
+		assert( extentsz <= contextp->cc_readlinkbufsz );
 
 		/* dump an extent header
 		 */
@@ -4255,7 +4280,7 @@ init_extent_group_context( jdm_fshandle_t *fshandlep,
 			   extent_group_context_t *gcp )
 {
 	bool_t isrealtime;
-	intgen_t oflags;
+	int oflags;
 	struct flock fl;
 
 	isrealtime = ( bool_t )(statp->bs_xflags & XFS_XFLAG_REALTIME );
@@ -4330,7 +4355,7 @@ dump_extent_group( drive_t *drivep,
 					XFS_XFLAG_REALTIME );
 	off64_t nextoffset;
 	off64_t bytecnt;	/* accumulates total bytes sent to media */
-	intgen_t rval;
+	int rval;
 	rv_t rv;
 
 	/*
@@ -4349,7 +4374,7 @@ dump_extent_group( drive_t *drivep,
 	 */
 	nextoffset = *nextoffsetp;
 	bytecnt = 0;
-	ASSERT( ( nextoffset & ( BBSIZE - 1 )) == 0 );
+	assert( ( nextoffset & ( BBSIZE - 1 )) == 0 );
 
 	for ( ; ; ) {
 		off64_t offset;
@@ -4394,9 +4419,9 @@ dump_extent_group( drive_t *drivep,
 		 * get one.
 		 */
 		if ( gcp->eg_nextbmapp >= gcp->eg_endbmapp ) {
-			intgen_t entrycnt; /* entries in new bmap */
+			int entrycnt; /* entries in new bmap */
 
-			ASSERT( gcp->eg_nextbmapp == gcp->eg_endbmapp );
+			assert( gcp->eg_nextbmapp == gcp->eg_endbmapp );
 
 			/* get a new extent block
 			 */
@@ -4611,7 +4636,7 @@ dump_extent_group( drive_t *drivep,
 			      extsz,
 			      nextoffset );
 		}
-		ASSERT( extsz > 0 );
+		assert( extsz > 0 );
 
 		/* if the resultant extent would put us over maxcnt,
 		 * shorten it, and round up to the next BBSIZE (round 
@@ -4690,8 +4715,8 @@ dump_extent_group( drive_t *drivep,
 		 */
 		if ( sosig && ( extsz > stopoffset - offset )) {
 			extsz = stopoffset - offset;
-			ASSERT( extsz >= 0 );
-			ASSERT( ! ( extsz & ( off64_t )( BBSIZE - 1 )));
+			assert( extsz >= 0 );
+			assert( ! ( extsz & ( off64_t )( BBSIZE - 1 )));
 			mlog( MLOG_NITTY,
 			      "adjusted top of extent "
 			      "to adhere to stop offset: "
@@ -4745,8 +4770,8 @@ dump_extent_group( drive_t *drivep,
 		}
 		/* adjust the next offset
 		 */
-		ASSERT( ( offset & ( off64_t )( BBSIZE - 1 )) == 0 );
-		ASSERT( ( extsz & ( off64_t )( BBSIZE - 1 )) == 0 );
+		assert( ( offset & ( off64_t )( BBSIZE - 1 )) == 0 );
+		assert( ( extsz & ( off64_t )( BBSIZE - 1 )) == 0 );
 		nextoffset = offset + extsz;
 
 		/* dump the extent header
@@ -4771,7 +4796,7 @@ dump_extent_group( drive_t *drivep,
 		 */
 		while ( extsz ) {
 			off64_t new_off;
-			intgen_t nread;
+			int nread;
 			size_t reqsz;
 			size_t actualsz;
 			char *bufp;
@@ -4784,7 +4809,7 @@ dump_extent_group( drive_t *drivep,
 			bufp = ( * dop->do_get_write_buf )( drivep,
 							    reqsz,
 							    &actualsz );
-			ASSERT( actualsz <= reqsz );
+			assert( actualsz <= reqsz );
 			new_off = lseek64( gcp->eg_fd, offset, SEEK_SET );
 			if ( new_off == ( off64_t )( -1 )) {
 				mlog( MLOG_NORMAL, _(
@@ -4808,7 +4833,7 @@ dump_extent_group( drive_t *drivep,
 
 				nread = 0;
 			}
-			ASSERT( ( size_t )nread <= actualsz );
+			assert( ( size_t )nread <= actualsz );
 			mlog( MLOG_NITTY,
 			      "read ino %llu offset %lld sz %d actual %d\n",
 			      statp->bs_ino,
@@ -4939,12 +4964,12 @@ dump_filehdr( drive_t *drivep,
 	      context_t *contextp,
 	      xfs_bstat_t *statp,
 	      off64_t offset,
-	      intgen_t flags )
+	      int flags )
 {
 	drive_ops_t *dop = drivep->d_opsp;
 	register filehdr_t *fhdrp = contextp->cc_filehdrp;
 	filehdr_t tmpfhdrp;
-	intgen_t rval;
+	int rval;
 	rv_t rv;
 
 	( void )memset( ( void * )fhdrp, 0, sizeof( *fhdrp ));
@@ -4996,7 +5021,7 @@ dump_extenthdr( drive_t *drivep,
 	drive_ops_t *dop = drivep->d_opsp;
 	register extenthdr_t *ehdrp = contextp->cc_extenthdrp;
 	extenthdr_t tmpehdrp;
-	intgen_t rval;
+	int rval;
 	rv_t rv;
 	char typestr[20];
 
@@ -5071,7 +5096,7 @@ dump_dirent( drive_t *drivep,
 	size_t direntbufsz = contextp->cc_mdirentbufsz;
 	size_t sz;
 	size_t name_offset;
-	intgen_t rval;
+	int rval;
 	rv_t rv;
 
 	if ( sc_use_old_direntpr ) {
@@ -5101,8 +5126,8 @@ dump_dirent( drive_t *drivep,
 		return RV_OK;
 	}
 
-	ASSERT( sz <= UINT16MAX );
-	ASSERT( sz >= DIRENTHDR_SZ );
+	assert( sz <= UINT16MAX );
+	assert( sz >= DIRENTHDR_SZ );
 
 	outbufp = malloc(sz);
 
@@ -5112,8 +5137,8 @@ dump_dirent( drive_t *drivep,
 
 		memset( ( void * )dhdrp, 0, sz );
 		dhdrp->dh_ino = ino;
-		dhdrp->dh_sz = ( u_int16_t )sz;
-		dhdrp->dh_gen = ( u_int16_t )( gen & DENTGENMASK );
+		dhdrp->dh_sz = ( uint16_t )sz;
+		dhdrp->dh_gen = ( uint16_t )( gen & DENTGENMASK );
 		if ( name ) {
 			strcpy( dhdrp->dh_name, name );
 		}
@@ -5131,7 +5156,7 @@ dump_dirent( drive_t *drivep,
 		memset( ( void * )dhdrp, 0, sz );
 		dhdrp->dh_ino = ino;
 		dhdrp->dh_gen = gen;
-		dhdrp->dh_sz = ( u_int16_t )sz;
+		dhdrp->dh_sz = ( uint16_t )sz;
 		if ( name ) {
 			strcpy( dhdrp->dh_name, name );
 		}
@@ -5204,7 +5229,7 @@ dump_session_inv( drive_t *drivep,
 		      "unable to get session inventory to dump\n") );
 		return BOOL_TRUE;
 	}
-	ASSERT( inv_sbufp );
+	assert( inv_sbufp );
 
 	/* modify the write header to indicate the media file type.
 	 */
@@ -5218,8 +5243,8 @@ dump_session_inv( drive_t *drivep,
 		uuid_t mediaid;
 		char medialabel[ GLOBAL_HDR_STRING_SZ ];
 		bool_t partial;
-		intgen_t mediafileix;
-		intgen_t rval;
+		int mediafileix;
+		int rval;
 		rv_t rv;
 
 		mlog( MLOG_VERBOSE, _(
@@ -5257,7 +5282,7 @@ dump_session_inv( drive_t *drivep,
 
 		uuid_copy(mediaid, mwhdrp->mh_mediaid);
 		strcpy( medialabel, mwhdrp->mh_medialabel );
-		mediafileix = ( intgen_t )mwhdrp->mh_mediafileix;
+		mediafileix = ( int )mwhdrp->mh_mediafileix;
 
 		rval = write_buf( inv_sbufp,
 				  inv_sbufsz,
@@ -5319,7 +5344,7 @@ dump_session_inv( drive_t *drivep,
 			ok = inv_put_mediafile( inv_stmt,
 						&mediaid,
 						medialabel,
-						( u_intgen_t )mediafileix,
+						( uint )mediafileix,
 						(xfs_ino_t )0,
 						( off64_t )0,
 						(xfs_ino_t )0,
@@ -5436,7 +5461,7 @@ static rv_t
 write_pad( drive_t *drivep, size_t sz )
 {
 	drive_ops_t *dop = drivep->d_opsp;
-	intgen_t rval;
+	int rval;
 	rv_t rv;
 
 	rval = write_buf( 0,
@@ -5495,18 +5520,18 @@ inv_cleanup( void )
 			      interrupted ? ": interrupted" : "" );
 			if (interrupted) mlog_exit_hint(RV_INTR);
 			ok = inv_stream_close( *inv_stmtp, interrupted );
-			ASSERT( ok );
+			assert( ok );
 		}
 	}
 
 	if ( sc_inv_sestoken != INV_TOKEN_NULL ) {
 		ok = inv_writesession_close( sc_inv_sestoken );
-		ASSERT( ok );
+		assert( ok );
 	}
 
 	if ( sc_inv_idbtoken != INV_TOKEN_NULL ) {
 		ok = inv_close( sc_inv_idbtoken );
-		ASSERT( ok );
+		assert( ok );
 	}
 }
 
@@ -5523,7 +5548,7 @@ static rv_t
 Media_mfile_begin( drive_t *drivep, context_t *contextp, bool_t intr_allowed )
 {
 	drive_ops_t *dop = drivep->d_opsp;
-	intgen_t dcaps = drivep->d_capabilities;
+	int dcaps = drivep->d_capabilities;
 	global_hdr_t *gwhdrp = drivep->d_gwritehdrp;
 	drive_hdr_t *dwhdrp = drivep->d_writehdrp;
 	media_hdr_t *mwhdrp = ( media_hdr_t * )dwhdrp->dh_upper;
@@ -5535,12 +5560,12 @@ Media_mfile_begin( drive_t *drivep, context_t *contextp, bool_t intr_allowed )
 	bool_t prevmediapresentpr;
 	bool_t mediawrittentopr;
 	global_hdr_t saved_gwhdr;
-	intgen_t rval;
+	int rval;
 	bool_t ok;
 
 	/* sanity checks
 	 */
-	ASSERT( BES_INIT == 0 );
+	assert( BES_INIT == 0 );
 
 	mlog( MLOG_DEBUG | MLOG_MEDIA,
 	      "Media op: begin media file\n" );
@@ -5564,8 +5589,8 @@ Media_mfile_begin( drive_t *drivep, context_t *contextp, bool_t intr_allowed )
 		switch ( entrystate ) {
 		case BES_INIT:
 			mediawrittentopr = BOOL_FALSE;
-			mwhdrp->mh_mediaix = ( u_int32_t )( -1 );
-			mwhdrp->mh_dumpfileix = ( u_int32_t )( -1 );
+			mwhdrp->mh_mediaix = ( uint32_t )( -1 );
+			mwhdrp->mh_dumpfileix = ( uint32_t )( -1 );
 			if ( dcaps & DRIVE_CAP_READ ) {
 				mediapresentpr = BOOL_UNKNOWN;
 				virginmediapr = BOOL_UNKNOWN;
@@ -5586,7 +5611,7 @@ Media_mfile_begin( drive_t *drivep, context_t *contextp, bool_t intr_allowed )
 			mediawrittentopr = BOOL_TRUE;
 			goto changemedia;
 		default:
-			ASSERT( 0 );
+			assert( 0 );
 			return RV_CORE;
 		}
 	}
@@ -5680,14 +5705,14 @@ position:
 				goto changemedia;
 			}
 			if ( MEDIA_TERMINATOR_CHK( mrhdrp )) {
-				intgen_t status;
+				int status;
 				mlog( MLOG_VERBOSE | MLOG_MEDIA, _(
 				      "stream terminator found\n") );
-				ASSERT( contextp->cc_Media_useterminatorpr );
-				ASSERT( dcaps & DRIVE_CAP_BSF ); /* redundant */
+				assert( contextp->cc_Media_useterminatorpr );
+				assert( dcaps & DRIVE_CAP_BSF ); /* redundant */
 				status = 0;
 				rval = ( * dop->do_bsf )( drivep, 0, &status );
-				ASSERT( rval == 0 );
+				assert( rval == 0 );
 				if ( status == DRIVE_ERROR_DEVICE ) {
 					mlog( MLOG_NORMAL | MLOG_ERROR | MLOG_MEDIA, _(
 					      "encountered media error "
@@ -5737,13 +5762,13 @@ position:
 				      "unable to overwrite\n") );
 				goto changemedia;
 			} else {
-				intgen_t status;
+				int status;
 				mlog( MLOG_NORMAL | MLOG_WARNING | MLOG_MEDIA, _(
 				      "repositioning to overwrite\n") );
-				ASSERT( dcaps & DRIVE_CAP_BSF );
+				assert( dcaps & DRIVE_CAP_BSF );
 				status = 0;
 				rval = ( * dop->do_bsf )( drivep, 0, &status );
-				ASSERT( rval == 0 );
+				assert( rval == 0 );
 				if ( status == DRIVE_ERROR_DEVICE ) {
 					return RV_DRIVE;
 				}
@@ -5871,7 +5896,7 @@ position:
 				mlog_exit_hint(RV_CORRUPT);
 				goto changemedia;
 			} else {
-				intgen_t status;
+				int status;
 				mlog( MLOG_NORMAL | MLOG_WARNING | MLOG_MEDIA,_(
 				      "encountered corrupt or foreign data: "
 				      "repositioning to overwrite\n") );
@@ -5879,7 +5904,7 @@ position:
 				assert( dcaps & DRIVE_CAP_BSF );
 				status = 0;
 				rval = ( * dop->do_bsf )( drivep, 0, &status );
-				ASSERT( rval == 0 );
+				assert( rval == 0 );
 				if ( status == DRIVE_ERROR_DEVICE ) {
 					return RV_DRIVE;
 				}
@@ -5921,7 +5946,7 @@ changemedia:
 	
 	/* first eject the current media object if capability supported
 	 */
-	ASSERT( mediapresentpr != BOOL_UNKNOWN );
+	assert( mediapresentpr != BOOL_UNKNOWN );
 	if ( mediapresentpr == BOOL_TRUE ) {
 		if ( dcaps & DRIVE_CAP_EJECT ) {
 			rval = ( * dop->do_eject_media )( drivep );
@@ -5947,7 +5972,7 @@ changemedia:
 	 */
 	if ( drivecnt > 1 && ! stdoutpiped ) {
 		ix_t thrdix = drivep->d_index;
-		ASSERT( sistr );
+		assert( sistr );
 		mlog( MLOG_NORMAL | MLOG_NOTE | MLOG_MEDIA, _(
 		      "please change media: "
 		      "type %s to confirm media change\n"),
@@ -5981,8 +6006,8 @@ changemedia:
 	goto position;
 
 write:
-	ASSERT( mediapresentpr == BOOL_TRUE );
-	ASSERT( virginmediapr != BOOL_UNKNOWN );
+	assert( mediapresentpr == BOOL_TRUE );
+	assert( virginmediapr != BOOL_UNKNOWN );
 
 	if ( intr_allowed && cldmgr_stop_requested( )) {
 		return RV_INTR;
@@ -6022,8 +6047,8 @@ write:
 		mwhdrp->mh_mediaix++; /* pre-initialized to -1 */
 	}
 
-	ASSERT( mwhdrp->mh_mediaix != ( u_int32_t )( -1 ));
-	ASSERT( mwhdrp->mh_dumpfileix != ( u_int32_t )( -1 ));
+	assert( mwhdrp->mh_mediaix != ( uint32_t )( -1 ));
+	assert( mwhdrp->mh_dumpfileix != ( uint32_t )( -1 ));
 
 	/* do not allow interleaving of media files from different xfsdumps.
 	 */
@@ -6088,7 +6113,7 @@ write:
 				}
 			}
 		} else {
-			ASSERT( ! virginmediapr );
+			assert( ! virginmediapr );
 			uuid_copy(mwhdrp->mh_mediaid, mrhdrp->mh_mediaid);
 			( void )strncpyterm( mwhdrp->mh_medialabel,
 					     mrhdrp->mh_medialabel,
@@ -6132,19 +6157,19 @@ Media_mfile_end( drive_t *drivep,
 		 bool_t hit_eom )
 {
 	drive_ops_t *dop = drivep->d_opsp;
-	intgen_t rval;
+	int rval;
 
 	mlog( MLOG_DEBUG | MLOG_MEDIA,
 	      "Media op: end media file\n" );
 
-	ASSERT( contextp->cc_Media_begin_entrystate == BES_INVAL );
+	assert( contextp->cc_Media_begin_entrystate == BES_INVAL );
 
 	/* call drive's end_write op to flush the tail of the media file
 	 * if has previously hit EOM, this is moot.
 	 */
 	rval = ( dop->do_end_write )( drivep, ncommittedp );
 	if ( hit_eom ) {
-		ASSERT( ! rval );
+		assert( ! rval );
 		contextp->cc_Media_begin_entrystate = BES_ENDEOM;
 		return RV_EOM;
 	}
@@ -6196,7 +6221,7 @@ retry:
 	preamblestr[ preamblecnt++ ] = "\n";
 	preamblestr[ preamblecnt++ ] = fold;
 	preamblestr[ preamblecnt++ ] = "\n\n";
-	ASSERT( preamblecnt <= PREAMBLEMAX );
+	assert( preamblecnt <= PREAMBLEMAX );
 	dlog_begin( preamblestr, preamblecnt );
 
 	/* query: ask if overwrite ok
@@ -6207,13 +6232,13 @@ retry:
 		 (unsigned int)drivep->d_index );
 	querycnt = 0;
 	querystr[ querycnt++ ] = question;
-	ASSERT( querycnt <= QUERYMAX );
+	assert( querycnt <= QUERYMAX );
 	choicecnt = 0;
 	dontix = choicecnt;
 	choicestr[ choicecnt++ ] = "don't overwrite";
 	doix = choicecnt;
 	choicestr[ choicecnt++ ] = "overwrite";
-	ASSERT( choicecnt <= CHOICEMAX );
+	assert( choicecnt <= CHOICEMAX );
 	sigintix = IXMAX - 1;
 
 	responseix = dlog_multi_query( querystr,
@@ -6237,7 +6262,7 @@ retry:
 	} else {
 		ackstr[ ackcnt++ ] = "keyboard interrupt\n";
 	}
-	ASSERT( ackcnt <= ACKMAX );
+	assert( ackcnt <= ACKMAX );
 	dlog_multi_ack( ackstr,
 			ackcnt );
 
@@ -6246,7 +6271,7 @@ retry:
 	postamblestr[ postamblecnt++ ] = "\n";
 	postamblestr[ postamblecnt++ ] = fold;
 	postamblestr[ postamblecnt++ ] = "\n\n";
-	ASSERT( postamblecnt <= POSTAMBLEMAX );
+	assert( postamblecnt <= POSTAMBLEMAX );
 	dlog_end( postamblestr,
 		  postamblecnt );
 
@@ -6272,7 +6297,7 @@ retry:
 
 static rv_t
 Media_erasechk( drive_t *drivep,
-		intgen_t dcaps,
+		int dcaps,
 		bool_t intr_allowed,
 		bool_t prevmediapresentpr )
 {
@@ -6334,7 +6359,7 @@ retry:
 	preamblestr[ preamblecnt++ ] = "\n";
 	preamblestr[ preamblecnt++ ] = fold;
 	preamblestr[ preamblecnt++ ] = "\n\n";
-	ASSERT( preamblecnt <= PREAMBLEMAX );
+	assert( preamblecnt <= PREAMBLEMAX );
 	dlog_begin( preamblestr, preamblecnt );
 
 	/* query: ask if overwrite ok
@@ -6348,13 +6373,13 @@ retry:
 		 (unsigned int)drivep->d_index );
 	querycnt = 0;
 	querystr[ querycnt++ ] = question;
-	ASSERT( querycnt <= QUERYMAX );
+	assert( querycnt <= QUERYMAX );
 	choicecnt = 0;
 	dontix = choicecnt;
 	choicestr[ choicecnt++ ] = "don't erase";
 	doix = choicecnt;
 	choicestr[ choicecnt++ ] = "erase";
-	ASSERT( choicecnt <= CHOICEMAX );
+	assert( choicecnt <= CHOICEMAX );
 	sigintix = IXMAX - 1;
 
 	responseix = dlog_multi_query( querystr,
@@ -6378,7 +6403,7 @@ retry:
 	} else {
 		ackstr[ ackcnt++ ] = "keyboard interrupt\n";
 	}
-	ASSERT( ackcnt <= ACKMAX );
+	assert( ackcnt <= ACKMAX );
 	dlog_multi_ack( ackstr,
 			ackcnt );
 
@@ -6387,7 +6412,7 @@ retry:
 	postamblestr[ postamblecnt++ ] = "\n";
 	postamblestr[ postamblecnt++ ] = fold;
 	postamblestr[ postamblecnt++ ] = "\n\n";
-	ASSERT( postamblecnt <= POSTAMBLEMAX );
+	assert( postamblecnt <= POSTAMBLEMAX );
 	dlog_end( postamblestr,
 		  postamblecnt );
 
@@ -6446,7 +6471,7 @@ retry:
 	preamblestr[ preamblecnt++ ] = "\n";
 	preamblestr[ preamblecnt++ ] = fold;
 	preamblestr[ preamblecnt++ ] = "\n\n";
-	ASSERT( preamblecnt <= PREAMBLEMAX );
+	assert( preamblecnt <= PREAMBLEMAX );
 	dlog_begin( preamblestr, preamblecnt );
 
 	responseix = dlog_string_query( Media_prompt_label_cb,
@@ -6472,7 +6497,7 @@ retry:
 		ackstr[ ackcnt++ ] = "abort\n";
 	}
 
-	ASSERT( ackcnt <= ACKMAX );
+	assert( ackcnt <= ACKMAX );
 	dlog_string_ack( ackstr,
 			 ackcnt );
 
@@ -6481,7 +6506,7 @@ retry:
 	postamblestr[ postamblecnt++ ] = "\n";
 	postamblestr[ postamblecnt++ ] = fold;
 	postamblestr[ postamblecnt++ ] = "\n\n";
-	ASSERT( postamblecnt <= POSTAMBLEMAX );
+	assert( postamblecnt <= POSTAMBLEMAX );
 	dlog_end( postamblestr,
 		  postamblecnt );
 

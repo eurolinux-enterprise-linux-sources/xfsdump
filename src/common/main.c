@@ -16,10 +16,11 @@
  * Inc.,  51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
-#include <xfs/xfs.h>
-#include <xfs/jdm.h>
-
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
 #include <sys/stat.h>
+#include <sys/param.h>
 #include <sys/wait.h>
 #include <sys/prctl.h>
 #include <sys/resource.h>
@@ -33,12 +34,16 @@
 #include <stdint.h>
 #include <sched.h>
 #include <pthread.h>
+#include <assert.h>
+#include <string.h>
+#include <uuid/uuid.h>
+
+#include "config.h"
 
 #include "exit.h"
 #include "types.h"
 #include "stream.h"
 #include "cldmgr.h"
-#include "util.h"
 #include "getopt.h"
 #include "mlog.h"
 #include "qlock.h"
@@ -97,7 +102,7 @@ static bool_t set_rlimits( void );
 #ifdef RESTORE
 static bool_t set_rlimits( size64_t * );
 #endif /* RESTORE */
-static char *sig_numstring( intgen_t num );
+static char *sig_numstring( int num );
 static char *strpbrkquotes( char *p, const char *sep );
 
 
@@ -127,7 +132,7 @@ static bool_t sigterm_received;
 static bool_t sigquit_received;
 static bool_t sigint_received;
 /* REFERENCED */
-static intgen_t sigstray_received;
+static int sigstray_received;
 static bool_t progrpt_enabledpr;
 static time32_t progrpt_interval;
 static time32_t progrpt_deadline;
@@ -150,25 +155,26 @@ main( int argc, char *argv[] )
 #endif /* DUMP */
 	bool_t init_error;
 	bool_t coredump_requested = BOOL_FALSE;
-	intgen_t exitcode;
+	int exitcode;
 	rlim64_t tmpstacksz;
 	struct sigaction sa;
-	intgen_t prbcld_xc = EXIT_NORMAL;
-	intgen_t xc;
+	int prbcld_xc = EXIT_NORMAL;
+	int xc;
 	bool_t ok;
 	/* REFERENCED */
 	int rval;
+	int err;
 
 	/* sanity checks
 	 */
-	ASSERT( sizeof( char_t ) == 1 );
-	ASSERT( sizeof( u_char_t ) == 1 );
-	ASSERT( sizeof( int32_t ) == 4 );
-	ASSERT( sizeof( u_int32_t ) == 4 );
-	ASSERT( sizeof( size32_t ) == 4 );
-	ASSERT( sizeof( int64_t ) == 8 );
-	ASSERT( sizeof( u_int64_t ) == 8 );
-	ASSERT( sizeof( size64_t ) == 8 );
+	assert( sizeof( char_t ) == 1 );
+	assert( sizeof( u_char_t ) == 1 );
+	assert( sizeof( int32_t ) == 4 );
+	assert( sizeof( uint32_t ) == 4 );
+	assert( sizeof( size32_t ) == 4 );
+	assert( sizeof( int64_t ) == 8 );
+	assert( sizeof( uint64_t ) == 8 );
+	assert( sizeof( size64_t ) == 8 );
 
 	/* record the command name used to invoke
 	 */
@@ -365,7 +371,7 @@ main( int argc, char *argv[] )
 	mlog( MLOG_DEBUG | MLOG_PROC,
 	      "getpagesize( ) returns %u\n",
 	      pgsz );
-	ASSERT( ( intgen_t )pgsz > 0 );
+	assert( ( int )pgsz > 0 );
 	pgmask = pgsz - 1;
 
 	/* report parent tid
@@ -559,13 +565,14 @@ main( int argc, char *argv[] )
 	ok = content_init( argc, argv, vmsz / VMSZ_PER );
 #endif /* RESTORE */
 	if ( ! ok ) {
-		return mlog_exit(EXIT_ERROR, RV_INIT);
+		err = mlog_exit(EXIT_ERROR, RV_INIT);
+		goto err_free;
 	}
 
 	/* if in a pipeline, go single-threaded with just one stream.
 	 */
 	if ( pipeline ) {
-		intgen_t exitcode;
+		int exitcode;
 
 		sa.sa_handler = sighandler;
 		sigaction( SIGINT, &sa, NULL );
@@ -582,11 +589,13 @@ main( int argc, char *argv[] )
 				  ( global_hdr_t * )0 );
 #endif /* RESTORE */
 		if ( ! ok ) {
-			return mlog_exit(EXIT_ERROR, RV_INIT);
+			err = mlog_exit(EXIT_ERROR, RV_INIT);
+			goto err_free;
 		}
 		ok = drive_init3( );
 		if ( ! ok ) {
-			return mlog_exit(EXIT_ERROR, RV_INIT);
+			err = mlog_exit(EXIT_ERROR, RV_INIT);
+			goto err_free;
 		}
 #ifdef DUMP
 		exitcode = content_stream_dump( 0 );
@@ -597,12 +606,13 @@ main( int argc, char *argv[] )
 		if ( exitcode != EXIT_NORMAL ) {
 			( void )content_complete( );
 						/* for cleanup side-effect */
-			return mlog_exit(exitcode, RV_UNKNOWN);
+			err = mlog_exit(exitcode, RV_UNKNOWN);
 		} else if ( content_complete( )) {
-			return mlog_exit(EXIT_NORMAL, RV_OK);
+			err = mlog_exit(EXIT_NORMAL, RV_OK);
 		} else {
-			return mlog_exit(EXIT_INTERRUPT, RV_UNKNOWN);
+			err = mlog_exit(EXIT_INTERRUPT, RV_UNKNOWN);
 		}
+		goto err_free;
 	}
 
 	/* used to skip to end if errors occur during any
@@ -656,12 +666,12 @@ main( int argc, char *argv[] )
 	 * signals.
 	 */
 	if ( progrpt_enabledpr ) {
-		( void )alarm( ( u_intgen_t )progrpt_interval );
+		( void )alarm( ( uint )progrpt_interval );
 	}
 	for ( ; ; ) {
 		time32_t now;
 		bool_t stop_requested = BOOL_FALSE;
-		intgen_t stop_timeout = -1;
+		int stop_timeout = -1;
 		sigset_t empty_set;
 
 		/* if there was an initialization error,
@@ -792,14 +802,14 @@ main( int argc, char *argv[] )
 			mlog_exit_hint(RV_INTR);
 			stop_in_progress = BOOL_TRUE;
 			cldmgr_stop( );
-			ASSERT( stop_timeout >= 0 );
+			assert( stop_timeout >= 0 );
 			stop_deadline = now + ( time32_t )stop_timeout;
 		}
 		
 		/* set alarm if needed (note time stands still during dialog)
 		 */
 		if ( stop_in_progress ) {
-			intgen_t timeout = ( intgen_t )( stop_deadline - now );
+			int timeout = ( int )( stop_deadline - now );
 			if ( timeout < 0 ) {
 				timeout = 0;
 			}
@@ -807,7 +817,7 @@ main( int argc, char *argv[] )
 			      "setting alarm for %d second%s\n",
 			      timeout,
 			      timeout == 1 ? "" : "s" );
-			( void )alarm( ( u_intgen_t )timeout );
+			( void )alarm( ( uint )timeout );
 			if ( timeout == 0 ) {
 				continue;
 			}
@@ -829,7 +839,7 @@ main( int argc, char *argv[] )
 					      statline[ i ] );
 				}
 			}
-			( void )alarm( ( u_intgen_t )( progrpt_deadline
+			( void )alarm( ( uint )( progrpt_deadline
 						       -
 						       now ));
 		}
@@ -868,7 +878,14 @@ main( int argc, char *argv[] )
 				mlog_exit_hint(RV_INCOMPLETE);
 		}
 	}
-	return mlog_exit(exitcode, RV_UNKNOWN);
+
+	err = mlog_exit(exitcode, RV_UNKNOWN);
+
+err_free:
+#ifdef DUMP
+	global_hdr_free( gwhdrtemplatep );
+#endif /* DUMP */
+	return err;
 }
 
 #define ULO( f, o )	fprintf( stderr,		\
@@ -1106,22 +1123,22 @@ preemptchk( int flg )
 /* definition of locally defined static functions ****************************/
 
 static bool_t
-loadoptfile( intgen_t *argcp, char ***argvp )
+loadoptfile( int *argcp, char ***argvp )
 {
 	char *optfilename;
 	ix_t optfileix = 0;
-	intgen_t fd;
+	int fd;
 	size_t sz;
-	intgen_t i;
+	int i;
 	struct stat64 stat;
 	char *argbuf;
 	char *p;
 	size_t tokencnt;
-	intgen_t nread;
+	int nread;
 	const char *sep = " \t\n\r";
 	char **newargv;
-	intgen_t c;
-	intgen_t rval;
+	int c;
+	int rval;
 
 	/* see if option specified
 	 */
@@ -1146,7 +1163,7 @@ loadoptfile( intgen_t *argcp, char ***argvp )
 				return BOOL_FALSE;
 			}
 			optfilename = optarg;
-			ASSERT( optind > 2 );
+			assert( optind > 2 );
 			optfileix = ( ix_t )optind - 2;
 			break;
 		}
@@ -1196,7 +1213,7 @@ loadoptfile( intgen_t *argcp, char ***argvp )
 	 */
 	sz = 0;
 	for ( i =  0 ; i < *argcp ; i++ ) {
-		if ( i == ( intgen_t )optfileix ) {
+		if ( i == ( int )optfileix ) {
 			i++; /* to skip option argument */
 			continue;
 		}
@@ -1211,7 +1228,7 @@ loadoptfile( intgen_t *argcp, char ***argvp )
 	/* allocate an argument buffer
 	 */
 	argbuf = ( char * )malloc( sz );
-	ASSERT( argbuf );
+	assert( argbuf );
 
 	/* copy arg0 (the executable's name ) in first
 	 */
@@ -1233,14 +1250,14 @@ loadoptfile( intgen_t *argcp, char ***argvp )
 		close( fd );
 		return BOOL_FALSE;
 	}
-	ASSERT( ( off64_t )nread == stat.st_size );
+	assert( ( off64_t )nread == stat.st_size );
 	p += ( size_t )stat.st_size;
 	*p++ = ' ';
 
 	/* copy the remaining command line args into the buffer
 	 */
 	for ( ; i < *argcp ; i++ ) {
-		if ( i == ( intgen_t )optfileix ) {
+		if ( i == ( int )optfileix ) {
 			i++; /* to skip option argument */
 			continue;
 		}
@@ -1251,12 +1268,12 @@ loadoptfile( intgen_t *argcp, char ***argvp )
 	/* null-terminate the entire buffer
 	 */
 	*p++ = 0;
-	ASSERT( ( size_t )( p - argbuf ) <= sz );
+	assert( ( size_t )( p - argbuf ) <= sz );
 
 	/* change newlines and carriage returns into spaces
 	 */
 	for ( p = argbuf ; *p ; p++ ) {
-		if ( strchr( "\n\r", ( intgen_t )( *p ))) {
+		if ( strchr( "\n\r", ( int )( *p ))) {
 			*p = ' ';
 		}
 	}
@@ -1268,7 +1285,7 @@ loadoptfile( intgen_t *argcp, char ***argvp )
 	for ( ; ; ) {
 		/* start at the first non-separator character
 		 */
-		while ( *p && strchr( sep, ( intgen_t )( *p ))) {
+		while ( *p && strchr( sep, ( int )( *p ))) {
 			p++;
 		}
 
@@ -1303,7 +1320,7 @@ loadoptfile( intgen_t *argcp, char ***argvp )
 	/* allocate a new argv array to hold the tokens
 	 */
 	newargv = ( char ** )calloc( tokencnt, sizeof( char * ));
-	ASSERT( newargv );
+	assert( newargv );
 
 	/* null-terminate tokens and place in new argv, after
 	 * extracting quotes and escapes
@@ -1314,7 +1331,7 @@ loadoptfile( intgen_t *argcp, char ***argvp )
 
 		/* start at the first non-separator character
 		 */
-		while ( *p && strchr( sep, ( intgen_t )*p )) {
+		while ( *p && strchr( sep, ( int )*p )) {
 			p++;
 		}
 
@@ -1326,7 +1343,7 @@ loadoptfile( intgen_t *argcp, char ***argvp )
 
 		/* better not disagree with counting scan!
 		 */
-		ASSERT( i < ( intgen_t )tokencnt );
+		assert( i < ( int )tokencnt );
 
 		/* find the end of the first token
 		 */
@@ -1358,7 +1375,7 @@ loadoptfile( intgen_t *argcp, char ***argvp )
 	/* return new argc anr argv
 	 */
 	close( fd );
-	*argcp = ( intgen_t )tokencnt;
+	*argcp = ( int )tokencnt;
 	*argvp = newargv;
 	return BOOL_TRUE;
 }
@@ -1376,7 +1393,7 @@ sighandler( int signo )
 	/* if in pipeline, don't do anything risky. just quit.
 	 */
 	if ( pipeline ) {
-		intgen_t rval;
+		int rval;
 
 		mlog( MLOG_TRACE | MLOG_NOTE | MLOG_NOLOCK | MLOG_PROC,
 		      _("received signal %d (%s): cleanup and exit\n"),
@@ -1427,7 +1444,7 @@ static int
 childmain( void *arg1 )
 {
 	ix_t stix;
-	intgen_t exitcode;
+	int exitcode;
 	drive_t *drivep;
 
 	/* Determine which stream I am.
@@ -1513,7 +1530,7 @@ sigint_dialog( void )
 	size_t allix;
 	size_t nochangeix;
 	size_t responseix;
-	intgen_t ssselected = 0;
+	int ssselected = 0;
 	bool_t stop_requested = BOOL_FALSE;
 
 	/* preamble: the content status line, indicate if interrupt happening
@@ -1533,7 +1550,7 @@ sigint_dialog( void )
 			_("\nsession interrupt in progress\n");
 	}
 	preamblestr[ preamblecnt++ ] = "\n";
-	ASSERT( preamblecnt <= PREAMBLEMAX );
+	assert( preamblecnt <= PREAMBLEMAX );
 	dlog_begin( preamblestr, preamblecnt );
 
 	/* top-level query: a function of session interrupt status
@@ -1541,7 +1558,7 @@ sigint_dialog( void )
 	querycnt = 0;
 	querystr[ querycnt++ ] = _("please select one of "
 				 "the following operations\n");
-	ASSERT( querycnt <= QUERYMAX );
+	assert( querycnt <= QUERYMAX );
 	choicecnt = 0;
 	if ( ! stop_in_progress ) {
 		interruptix = choicecnt;
@@ -1564,7 +1581,7 @@ sigint_dialog( void )
 	choicestr[ choicecnt++ ] = _("other controls");
 	continueix = choicecnt;
 	choicestr[ choicecnt++ ] = _("continue");
-	ASSERT( choicecnt <= CHOICEMAX );
+	assert( choicecnt <= CHOICEMAX );
 
 	responseix = dlog_multi_query( querystr,
 				       querycnt,
@@ -1586,13 +1603,13 @@ sigint_dialog( void )
 				ackcnt );
 		querycnt = 0;
 		querystr[ querycnt++ ] = _("please confirm\n");
-		ASSERT( querycnt <= QUERYMAX );
+		assert( querycnt <= QUERYMAX );
 		choicecnt = 0;
 		interruptix = choicecnt;
 		choicestr[ choicecnt++ ] = _("interrupt this session");
 		nochangeix = choicecnt;
 		choicestr[ choicecnt++ ] = _("continue");
-		ASSERT( choicecnt <= CHOICEMAX );
+		assert( choicecnt <= CHOICEMAX );
 		responseix = dlog_multi_query( querystr,
 					       querycnt,
 					       choicestr,
@@ -1623,7 +1640,7 @@ sigint_dialog( void )
 		querycnt = 0;
 		querystr[ querycnt++ ] = _("please select one of "
 					 "the following subsystems\n");
-		ASSERT( querycnt <= QUERYMAX );
+		assert( querycnt <= QUERYMAX );
 		choicecnt = 0;
 		/* number of lines must match number of subsystems
 		 */
@@ -1634,7 +1651,7 @@ sigint_dialog( void )
 		choicestr[ choicecnt++ ] = _("all of the above");
 		nochangeix = choicecnt;
 		choicestr[ choicecnt++ ] = _("no change");
-		ASSERT( choicecnt <= CHOICEMAX );
+		assert( choicecnt <= CHOICEMAX );
 		responseix = dlog_multi_query( querystr,
 					       querycnt,
 					       choicestr,
@@ -1655,7 +1672,7 @@ sigint_dialog( void )
 			ssselected = -1;
 			ackstr[ ackcnt++ ] = _("all subsystems selected\n\n");
 		} else {
-			ssselected = ( intgen_t )responseix;
+			ssselected = ( int )responseix;
 			ackstr[ ackcnt++ ] = "\n";
 		}
 		dlog_multi_ack( ackstr,
@@ -1664,7 +1681,7 @@ sigint_dialog( void )
 			querycnt = 0;
 			querystr[ querycnt++ ] = ("please select one of the "
 						  "following verbosity levels\n");
-			ASSERT( querycnt <= QUERYMAX );
+			assert( querycnt <= QUERYMAX );
 			choicecnt = 0;
 			choicestr[ choicecnt++ ] = _("silent");
 			choicestr[ choicecnt++ ] = _("verbose");
@@ -1674,7 +1691,7 @@ sigint_dialog( void )
 			choicestr[ choicecnt++ ] = _("nitty + 1");
 			nochangeix = choicecnt;
 			choicestr[ choicecnt++ ] = _("no change");
-			ASSERT( choicecnt <= CHOICEMAX );
+			assert( choicecnt <= CHOICEMAX );
 			responseix = dlog_multi_query( querystr,
 						       querycnt,
 						       choicestr,
@@ -1708,18 +1725,18 @@ sigint_dialog( void )
 			} else {
 				if ( ssselected < 0 ) {
 					ix_t ssix;
-					ASSERT( ssselected == -1 );
+					assert( ssselected == -1 );
 					for ( ssix = 0
 					      ;
 					      ssix < MLOG_SS_CNT
 					      ;
 					      ssix++ ) {
 						mlog_level_ss[ ssix ] =
-							( intgen_t )responseix;
+							( int )responseix;
 					}
 				} else {
 					mlog_level_ss[ ssselected ] =
-							( intgen_t )responseix;
+							( int )responseix;
 				}
 				ackstr[ ackcnt++ ] = _("level changed\n");
 			}
@@ -1734,7 +1751,7 @@ sigint_dialog( void )
 		querycnt = 0;
 		querystr[ querycnt++ ] = _("please select one of "
 					  "the following metrics\n");
-		ASSERT( querycnt <= QUERYMAX );
+		assert( querycnt <= QUERYMAX );
 		choicecnt = 0;
 		ioix = choicecnt;
 		choicestr[ choicecnt++ ] = _("I/O");
@@ -1746,7 +1763,7 @@ sigint_dialog( void )
 #endif /* RESTORE */
 		nochangeix = choicecnt;
 		choicestr[ choicecnt++ ] = _("continue");
-		ASSERT( choicecnt <= CHOICEMAX );
+		assert( choicecnt <= CHOICEMAX );
 		responseix = dlog_multi_query( querystr,
 					       querycnt,
 					       choicestr,
@@ -1779,11 +1796,11 @@ sigint_dialog( void )
 		if ( responseix != nochangeix ) {
 			querycnt = 0;
 			querystr[ querycnt++ ] = "\n";
-			ASSERT( querycnt <= QUERYMAX );
+			assert( querycnt <= QUERYMAX );
 			choicecnt = 0;
 			nochangeix = choicecnt;
 			choicestr[ choicecnt++ ] = _("continue");
-			ASSERT( choicecnt <= CHOICEMAX );
+			assert( choicecnt <= CHOICEMAX );
 			responseix = dlog_multi_query( querystr,
 						       querycnt,
 						       choicestr,
@@ -1818,7 +1835,7 @@ sigint_dialog( void )
 		querycnt = 0;
 		querystr[ querycnt++ ] = _("please select one of "
 					   "the following controls\n");
-		ASSERT( querycnt <= QUERYMAX );
+		assert( querycnt <= QUERYMAX );
 		choicecnt = 0;
 		progix = choicecnt;
 		if ( progrpt_enabledpr ) {
@@ -1847,7 +1864,7 @@ sigint_dialog( void )
 		}
 		nochangeix = choicecnt;
 		choicestr[ choicecnt++ ] = _("continue");
-		ASSERT( choicecnt <= CHOICEMAX );
+		assert( choicecnt <= CHOICEMAX );
 		responseix = dlog_multi_query( querystr,
 					       querycnt,
 					       choicestr,
@@ -1882,7 +1899,7 @@ sigint_dialog( void )
 							ncix,  /* sigquit ix */
 							okix );
 			if ( responseix == okix ) {
-				intgen_t newinterval;
+				int newinterval;
 				newinterval = atoi( buf );
 				if ( ! strlen( buf )) {
 					ackstr[ ackcnt++ ] = _("no change\n");
@@ -1898,7 +1915,7 @@ sigint_dialog( void )
 							sprintf( intervalbuf,
 								 _("%d seconds\n"),
 								 newinterval );
-							ASSERT( strlen( intervalbuf )
+							assert( strlen( intervalbuf )
 								<
 								sizeof( intervalbuf ));
 							ackstr[ ackcnt++ ] = intervalbuf;
@@ -1911,7 +1928,7 @@ sigint_dialog( void )
 						sprintf( intervalbuf,
 							 _("%d second intervals\n"),
 							 newinterval );
-						ASSERT( strlen( intervalbuf )
+						assert( strlen( intervalbuf )
 							<
 							sizeof( intervalbuf ));
 						ackstr[ ackcnt++ ] = intervalbuf;
@@ -1966,7 +1983,7 @@ sigint_dialog( void )
 	postamblestr[ postamblecnt++ ] = "\n";
 	postamblestr[ postamblecnt++ ] = fold;
 	postamblestr[ postamblecnt++ ] = "\n\n";
-	ASSERT( postamblecnt <= POSTAMBLEMAX );
+	assert( postamblecnt <= POSTAMBLEMAX );
 	dlog_end( postamblestr,
 		  postamblecnt );
 
@@ -1976,11 +1993,11 @@ sigint_dialog( void )
 static char *
 sigintstr( void )
 {
-	intgen_t ttyfd;
+	int ttyfd;
 	static char buf[ 20 ];
 	struct termios termios;
 	cc_t intchr;
-	intgen_t rval;
+	int rval;
 
 	ttyfd = dlog_fd( );
 	if ( ttyfd == -1 ) {
@@ -2009,7 +2026,7 @@ sigintstr( void )
 	} else {
 		sprintf( buf, "%c", intchr );
 	}
-	ASSERT( strlen( buf ) < sizeof( buf ));
+	assert( strlen( buf ) < sizeof( buf ));
 
 	return buf;
 }
@@ -2028,13 +2045,13 @@ set_rlimits( size64_t *vmszp )
 	size64_t vmsz;
 #endif /* RESTORE */
 	/* REFERENCED */
-	intgen_t rval;
+	int rval;
 
-	ASSERT( minstacksz <= maxstacksz );
+	assert( minstacksz <= maxstacksz );
 
 	rval = getrlimit64( RLIMIT_AS, &rlimit64 );
 
-	ASSERT( ! rval );
+	assert( ! rval );
 	mlog( MLOG_NITTY | MLOG_NOLOCK | MLOG_PROC,
 	      "RLIMIT_AS org cur 0x%llx max 0x%llx\n",
 	      rlimit64.rlim_cur,
@@ -2044,7 +2061,7 @@ set_rlimits( size64_t *vmszp )
 		rlimit64.rlim_cur = rlimit64.rlim_max;
 		( void )setrlimit64( RLIMIT_AS, &rlimit64 );
 		rval = getrlimit64( RLIMIT_AS, &rlimit64 );
-		ASSERT( ! rval );
+		assert( ! rval );
 		mlog( MLOG_NITTY | MLOG_NOLOCK | MLOG_PROC,
 			"RLIMIT_VMEM now cur 0x%llx max 0x%llx\n",
 			rlimit64.rlim_cur,
@@ -2054,9 +2071,9 @@ set_rlimits( size64_t *vmszp )
 	vmsz = ( size64_t )rlimit64.rlim_cur;
 #endif /* RESTORE */
 	
-	ASSERT( minstacksz <= maxstacksz );
+	assert( minstacksz <= maxstacksz );
 	rval = getrlimit64( RLIMIT_STACK, &rlimit64 );
-	ASSERT( ! rval );
+	assert( ! rval );
 	mlog( MLOG_NITTY | MLOG_NOLOCK | MLOG_PROC,
 	      "RLIMIT_STACK org cur 0x%llx max 0x%llx\n",
 	      rlimit64.rlim_cur,
@@ -2076,7 +2093,7 @@ set_rlimits( size64_t *vmszp )
 			rlimit64.rlim_max = minstacksz;
 			( void )setrlimit64( RLIMIT_STACK, &rlimit64 );
 			rval = getrlimit64( RLIMIT_STACK, &rlimit64 );
-			ASSERT( ! rval );
+			assert( ! rval );
 			if ( rlimit64.rlim_cur < minstacksz ) {
 				mlog( MLOG_NORMAL
 				      |
@@ -2103,7 +2120,7 @@ set_rlimits( size64_t *vmszp )
 			rlimit64.rlim_cur = minstacksz;
 			( void )setrlimit64( RLIMIT_STACK, &rlimit64 );
 			rval = getrlimit64( RLIMIT_STACK, &rlimit64 );
-			ASSERT( ! rval );
+			assert( ! rval );
 			if ( rlimit64.rlim_cur < minstacksz ) {
 				mlog( MLOG_NORMAL
 				      |
@@ -2131,7 +2148,7 @@ set_rlimits( size64_t *vmszp )
 		rlimit64.rlim_cur = maxstacksz;
 		( void )setrlimit64( RLIMIT_STACK, &rlimit64 );
 		rval = getrlimit64( RLIMIT_STACK, &rlimit64 );
-		ASSERT( ! rval );
+		assert( ! rval );
 		if ( rlimit64.rlim_cur > maxstacksz ) {
 			mlog( MLOG_NORMAL
 			      |
@@ -2152,14 +2169,14 @@ set_rlimits( size64_t *vmszp )
 	      rlimit64.rlim_max );
 
 	rval = getrlimit64( RLIMIT_DATA, &rlimit64 );
-	ASSERT( ! rval );
+	assert( ! rval );
 	mlog( MLOG_NITTY | MLOG_NOLOCK | MLOG_PROC,
 	      "RLIMIT_DATA org cur 0x%llx max 0x%llx\n",
 	      rlimit64.rlim_cur,
 	      rlimit64.rlim_max );
 	
 	rval = getrlimit64( RLIMIT_FSIZE, &rlimit64 );
-	ASSERT( ! rval );
+	assert( ! rval );
 	mlog( MLOG_NITTY | MLOG_NOLOCK | MLOG_PROC,
 	      "RLIMIT_FSIZE org cur 0x%llx max 0x%llx\n",
 	      rlimit64.rlim_cur,
@@ -2169,14 +2186,14 @@ set_rlimits( size64_t *vmszp )
 	rlimit64.rlim_cur = RLIM64_INFINITY;
 	( void )setrlimit64( RLIMIT_FSIZE, &rlimit64 );
 	rval = getrlimit64( RLIMIT_FSIZE, &rlimit64 );
-	ASSERT( ! rval );
+	assert( ! rval );
 	mlog( MLOG_NITTY | MLOG_NOLOCK | MLOG_PROC,
 	      "RLIMIT_FSIZE now cur 0x%llx max 0x%llx\n",
 	      rlimit64.rlim_cur,
 	      rlimit64.rlim_max );
 	
 	rval = getrlimit64( RLIMIT_CPU, &rlimit64 );
-	ASSERT( ! rval );
+	assert( ! rval );
 	mlog( MLOG_NITTY | MLOG_NOLOCK | MLOG_PROC,
 	      "RLIMIT_CPU cur 0x%llx max 0x%llx\n",
 	      rlimit64.rlim_cur,
@@ -2184,7 +2201,7 @@ set_rlimits( size64_t *vmszp )
 	rlimit64.rlim_cur = rlimit64.rlim_max;
 	( void )setrlimit64( RLIMIT_CPU, &rlimit64 );
 	rval = getrlimit64( RLIMIT_CPU, &rlimit64 );
-	ASSERT( ! rval );
+	assert( ! rval );
 	mlog( MLOG_NITTY | MLOG_NOLOCK | MLOG_PROC,
 	      "RLIMIT_CPU now cur 0x%llx max 0x%llx\n",
 	      rlimit64.rlim_cur,
@@ -2197,7 +2214,7 @@ set_rlimits( size64_t *vmszp )
 }
 
 struct sig_printmap {
-	intgen_t num;
+	int num;
 	char *string;
 };
 
@@ -2234,7 +2251,7 @@ static sig_printmap_t sig_printmap[ ] = {
 };
 
 static char *
-sig_numstring( intgen_t num )
+sig_numstring( int num )
 {
 	sig_printmap_t *p = sig_printmap;
 	sig_printmap_t *endp = sig_printmap
@@ -2285,7 +2302,7 @@ strpbrkquotes( char *p, const char *sep )
 		}
 
 		if ( ! inquotes ) {
-			if ( strchr( sep, ( intgen_t )( *p ))) {
+			if ( strchr( sep, ( int )( *p ))) {
 				return p;
 			}
 		}
